@@ -1,0 +1,125 @@
+name: Capture E1002 Sensor History
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch E1002 sensor values and update history
+        env:
+          SENSECRAFT_API_KEY: ${{ secrets.SENSECRAFT_API_KEY }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const deviceId = "20223417";
+          const endpoint =
+            `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
+
+          async function main() {
+            if (!process.env.SENSECRAFT_API_KEY) {
+              throw new Error("SENSECRAFT_API_KEY is missing.");
+            }
+
+            const response = await fetch(endpoint, {
+              headers: {
+                "Api-Key": process.env.SENSECRAFT_API_KEY,
+                "Accept": "application/json"
+              }
+            });
+
+            if (!response.ok) {
+              const body = await response.text();
+              throw new Error(`SenseCraft API failed: ${response.status} ${body}`);
+            }
+
+            const payload = await response.json();
+
+            if (payload.code !== 200 || !payload.result) {
+              throw new Error(`Unexpected SenseCraft response: ${JSON.stringify(payload)}`);
+            }
+
+            const result = payload.result;
+
+            const reading = {
+              timestamp: new Date().toISOString(),
+              battery: Number(result.battery?.voltage),
+              charging: Boolean(result.battery?.charging),
+              temperature: Number(result.sensor?.temp),
+              humidity: Number(result.sensor?.humidity)
+            };
+
+            for (const key of ["battery", "temperature", "humidity"]) {
+              if (!Number.isFinite(reading[key])) {
+                throw new Error(`Invalid ${key} value from SenseCraft API.`);
+              }
+            }
+
+            const folder = "data";
+            const historyFile = path.join(folder, "sensor-history.json");
+
+            fs.mkdirSync(folder, { recursive: true });
+
+            let history = {
+              updatedAt: null,
+              readings: []
+            };
+
+            if (fs.existsSync(historyFile)) {
+              history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+            }
+
+            const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+            history.readings = Array.isArray(history.readings)
+              ? history.readings
+              : [];
+
+            history.readings.push(reading);
+
+            history.readings = history.readings
+              .filter(item => new Date(item.timestamp).getTime() >= cutoff)
+              .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            history.updatedAt = reading.timestamp;
+
+            fs.writeFileSync(
+              historyFile,
+              `${JSON.stringify(history, null, 2)}\n`,
+              "utf8"
+            );
+
+            console.log("Saved reading:", reading);
+          }
+
+          main().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Commit updated sensor history
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/sensor-history.json
+          git commit -m "Update E1002 sensor history"
+          git push
