@@ -40,30 +40,83 @@ jobs:
               }
             });
 
+            const responseText = await response.text();
+
             if (!response.ok) {
-              const body = await response.text();
-              throw new Error(`SenseCraft API failed: ${response.status} ${body}`);
+              throw new Error(
+                `SenseCraft API failed: ${response.status} ${responseText}`
+              );
             }
 
-            const payload = await response.json();
+            let payload;
+
+            try {
+              payload = JSON.parse(responseText);
+            } catch {
+              throw new Error(
+                `SenseCraft API returned invalid JSON: ${responseText}`
+              );
+            }
+
+            console.log("Top-level response keys:", Object.keys(payload || {}));
+            console.log("Response code:", payload?.code);
+            console.log("Result keys:", Object.keys(payload?.result || {}));
+            console.log(
+              "Battery object:",
+              JSON.stringify(payload?.result?.battery || null)
+            );
+            console.log(
+              "Sensor object:",
+              JSON.stringify(payload?.result?.sensor || null)
+            );
 
             if (payload.code !== 200 || !payload.result) {
-              throw new Error(`Unexpected SenseCraft response: ${JSON.stringify(payload)}`);
+              throw new Error(
+                `Unexpected SenseCraft response: ${JSON.stringify(payload)}`
+              );
             }
 
             const result = payload.result;
 
+            const batteryRaw =
+              result?.battery?.voltage ??
+              result?.battery?.level ??
+              result?.battery?.value ??
+              result?.batteryLevel ??
+              result?.battery_level;
+
+            const temperatureRaw =
+              result?.sensor?.temp ??
+              result?.sensor?.temperature ??
+              result?.temperature;
+
+            const humidityRaw =
+              result?.sensor?.humidity ??
+              result?.humidity;
+
             const reading = {
               timestamp: new Date().toISOString(),
-              battery: Number(result.battery?.voltage),
-              charging: Boolean(result.battery?.charging),
-              temperature: Number(result.sensor?.temp),
-              humidity: Number(result.sensor?.humidity)
+              battery: Number(batteryRaw),
+              charging: Boolean(result?.battery?.charging),
+              temperature: Number(temperatureRaw),
+              humidity: Number(humidityRaw)
             };
+
+            console.log(
+              "Parsed reading:",
+              JSON.stringify({
+                battery: reading.battery,
+                charging: reading.charging,
+                temperature: reading.temperature,
+                humidity: reading.humidity
+              })
+            );
 
             for (const key of ["battery", "temperature", "humidity"]) {
               if (!Number.isFinite(reading[key])) {
-                throw new Error(`Invalid ${key} value from SenseCraft API.`);
+                throw new Error(
+                  `Invalid ${key} value from SenseCraft API.`
+                );
               }
             }
 
@@ -78,10 +131,14 @@ jobs:
             };
 
             if (fs.existsSync(historyFile)) {
-              history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+              try {
+                history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+              } catch {
+                console.log("Existing history file was invalid; starting fresh.");
+              }
             }
 
-            const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
             history.readings = Array.isArray(history.readings)
               ? history.readings
@@ -90,8 +147,15 @@ jobs:
             history.readings.push(reading);
 
             history.readings = history.readings
-              .filter(item => new Date(item.timestamp).getTime() >= cutoff)
-              .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+              .filter(item => {
+                const timestamp = new Date(item.timestamp).getTime();
+                return Number.isFinite(timestamp) && timestamp >= cutoff;
+              })
+              .sort(
+                (a, b) =>
+                  new Date(a.timestamp).getTime() -
+                  new Date(b.timestamp).getTime()
+              );
 
             history.updatedAt = reading.timestamp;
 
@@ -101,7 +165,7 @@ jobs:
               "utf8"
             );
 
-            console.log("Saved reading:", reading);
+            console.log("Sensor history saved successfully.");
           }
 
           main().catch(error => {
