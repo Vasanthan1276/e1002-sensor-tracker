@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="refresh" content="3600">
+  <title>E1002 Health Monitor</title>
+
+  <style>
+    :root {
+      --ink: #111;
+      --muted: #666;
+      --grid: #d7d7d7;
+      --paper: #fff;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 800px;
+      height: 480px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #app {
+      width: 800px;
+      height: 480px;
+      padding: 14px 18px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 2px solid var(--ink);
+      padding-bottom: 7px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .subtitle,
+    .updated,
+    .footer,
+    .range {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .subtitle { margin-top: 3px; }
+
+    .updated {
+      text-align: right;
+      line-height: 1.4;
+    }
+
+    .updated strong {
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .card {
+      border: 1px solid var(--ink);
+      padding: 7px 10px;
+      min-height: 55px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .value {
+      margin-top: 3px;
+      font-size: 27px;
+      font-weight: 700;
+    }
+
+    .charts {
+      flex: 1;
+      display: grid;
+      grid-template-rows: repeat(3, 1fr);
+      gap: 7px;
+      min-height: 0;
+    }
+
+    .chart-box {
+      display: grid;
+      grid-template-columns: 145px 1fr;
+      border: 1px solid var(--ink);
+      min-height: 0;
+      padding: 5px 8px;
+    }
+
+    .chart-info {
+      border-right: 1px solid var(--grid);
+      padding: 5px 9px 4px 0;
+    }
+
+    .chart-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .chart-value {
+      margin-top: 5px;
+      font-size: 25px;
+      font-weight: 700;
+    }
+
+    .chart-wrap {
+      height: 86px;
+      min-width: 0;
+      padding-left: 8px;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .error {
+      padding: 30px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+
+<body>
+  <main id="app">
+    <header>
+      <div>
+        <h1>E1002 Health Monitor</h1>
+        <div class="subtitle">Battery, temperature and humidity · 7-day history</div>
+      </div>
+
+      <div class="updated">
+        <strong id="updated">Loading…</strong><br>
+        Last sensor record
+      </div>
+    </header>
+
+    <section class="cards">
+      <div class="card">
+        <div class="label">Battery</div>
+        <div class="value" id="battery-now">--%</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Temperature</div>
+        <div class="value" id="temperature-now">--°C</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Humidity</div>
+        <div class="value" id="humidity-now">--%</div>
+      </div>
+    </section>
+
+    <section class="charts">
+      <article class="chart-box">
+        <div class="chart-info">
+          <div class="chart-title">Battery level</div>
+          <div class="chart-value" id="battery-value">--%</div>
+          <div class="range" id="battery-range">7-day range: --</div>
+        </div>
+        <div class="chart-wrap" id="battery-chart"></div>
+      </article>
+
+      <article class="chart-box">
+        <div class="chart-info">
+          <div class="chart-title">Temperature</div>
+          <div class="chart-value" id="temperature-value">--°C</div>
+          <div class="range" id="temperature-range">7-day range: --</div>
+        </div>
+        <div class="chart-wrap" id="temperature-chart"></div>
+      </article>
+
+      <article class="chart-box">
+        <div class="chart-info">
+          <div class="chart-title">Humidity</div>
+          <div class="chart-value" id="humidity-value">--%</div>
+          <div class="range" id="humidity-range">7-day range: --</div>
+        </div>
+        <div class="chart-wrap" id="humidity-chart"></div>
+      </article>
+    </section>
+
+    <div class="footer">
+      <span>Captured hourly from SenseCraft HMI</span>
+      <span>History retained: 7 days</span>
+    </div>
+  </main>
+
+  <script>
+    const DATA_URL = "./data/sensor-history.json";
+    const SVG_NS = "http://www.w3.org/2000/svg";
+
+    const fmtDate = timestamp =>
+      new Intl.DateTimeFormat("en-SG", {
+        timeZone: "Asia/Singapore",
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      }).format(new Date(timestamp));
+
+    const dayLabel = timestamp =>
+      new Intl.DateTimeFormat("en-SG", {
+        timeZone: "Asia/Singapore",
+        weekday: "short"
+      }).format(new Date(timestamp));
+
+    function svg(tag, attrs = {}) {
+      const item = document.createElementNS(SVG_NS, tag);
+      Object.entries(attrs).forEach(([key, value]) => item.setAttribute(key, value));
+      return item;
+    }
+
+    function range(values, padding) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+
+      if (min === max) {
+        return { min: min - padding, max: max + padding };
+      }
+
+      const extra = Math.max((max - min) * 0.15, padding);
+      return { min: min - extra, max: max + extra };
+    }
+
+    function drawChart(containerId, readings, metric, fixedRange) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+
+      const width = 570;
+      const height = 86;
+      const p = { top: 8, right: 8, bottom: 20, left: 31 };
+      const plotW = width - p.left - p.right;
+      const plotH = height - p.top - p.bottom;
+
+      const values = readings.map(item => Number(item[metric]));
+      const yRange = fixedRange || range(values, metric === "battery" ? 4 : 0.8);
+
+      const root = svg("svg", {
+        viewBox: `0 0 ${width} ${height}`,
+        preserveAspectRatio: "none"
+      });
+
+      for (let i = 0; i <= 3; i++) {
+        const y = p.top + (plotH / 3) * i;
+        const value = yRange.max - ((yRange.max - yRange.min) / 3) * i;
+
+        root.appendChild(svg("line", {
+          x1: p.left,
+          y1: y,
+          x2: width - p.right,
+          y2: y,
+          stroke: "#d7d7d7",
+          "stroke-width": 1
+        }));
+
+        const text = svg("text", {
+          x: p.left - 4,
+          y: y + 3,
+          "text-anchor": "end",
+          "font-size": 8,
+          fill: "#666"
+        });
+
+        text.textContent = metric === "battery"
+          ? Math.round(value)
+          : value.toFixed(1);
+
+        root.appendChild(text);
+      }
+
+      root.appendChild(svg("line", {
+        x1: p.left,
+        y1: p.top,
+        x2: p.left,
+        y2: height - p.bottom,
+        stroke: "#111",
+        "stroke-width": 1
+      }));
+
+      root.appendChild(svg("line", {
+        x1: p.left,
+        y1: height - p.bottom,
+        x2: width - p.right,
+        y2: height - p.bottom,
+        stroke: "#111",
+        "stroke-width": 1
+      }));
+
+      const points = readings.map((reading, index) => {
+        const x = readings.length === 1
+          ? p.left + plotW / 2
+          : p.left + (index / (readings.length - 1)) * plotW;
+
+        const normalized = (Number(reading[metric]) - yRange.min) /
+          (yRange.max - yRange.min);
+
+        return {
+          x,
+          y: p.top + plotH - normalized * plotH,
+          timestamp: reading.timestamp
+        };
+      });
+
+      const path = points
+        .map((point, index) =>
+          `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+        )
+        .join(" ");
+
+      root.appendChild(svg("path", {
+        d: path,
+        fill: "none",
+        stroke: "#111",
+        "stroke-width": 1.7,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round"
+      }));
+
+      points.forEach(point => {
+        root.appendChild(svg("circle", {
+          cx: point.x,
+          cy: point.y,
+          r: 1.5,
+          fill: "#111"
+        }));
+      });
+
+      const shown = new Set();
+
+      points.forEach((point, index) => {
+        const label = dayLabel(point.timestamp);
+
+        if (index !== 0 && index !== points.length - 1 && shown.has(label)) {
+          return;
+        }
+
+        shown.add(label);
+
+        const text = svg("text", {
+          x: point.x,
+          y: height - 5,
+          "text-anchor": "middle",
+          "font-size": 8,
+          fill: "#555"
+        });
+
+        text.textContent = label;
+        root.appendChild(text);
+      });
+
+      container.appendChild(root);
+    }
+
+    function updateMetric(metric, latest, readings, unit, decimals) {
+      const values = readings.map(item => Number(item[metric]));
+      const latestText = `${Number(latest[metric]).toFixed(decimals)}${unit}`;
+      const min = Math.min(...values).toFixed(decimals);
+      const max = Math.max(...values).toFixed(decimals);
+
+      document.getElementById(`${metric}-now`).textContent = latestText;
+      document.getElementById(`${metric}-value`).textContent = latestText;
+      document.getElementById(`${metric}-range`).textContent =
+        `7-day range: ${min}–${max}${unit}`;
+    }
+
+    async function loadDashboard() {
+      try {
+        const response = await fetch(`${DATA_URL}?v=${Date.now()}`, {
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load sensor history.");
+        }
+
+        const data = await response.json();
+
+        const readings = data.readings
+          .filter(item =>
+            item.timestamp &&
+            Number.isFinite(Number(item.battery)) &&
+            Number.isFinite(Number(item.temperature)) &&
+            Number.isFinite(Number(item.humidity))
+          )
+          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (!readings.length) {
+          throw new Error("No sensor readings available yet.");
+        }
+
+        const latest = readings[readings.length - 1];
+
+        document.getElementById("updated").textContent =
+          fmtDate(data.updatedAt || latest.timestamp);
+
+        updateMetric("battery", latest, readings, "%", 0);
+        updateMetric("temperature", latest, readings, "°C", 1);
+        updateMetric("humidity", latest, readings, "%", 0);
+
+        drawChart("battery-chart", readings, "battery", { min: 0, max: 100 });
+        drawChart("temperature-chart", readings, "temperature");
+        drawChart("humidity-chart", readings, "humidity", { min: 0, max: 100 });
+
+      } catch (error) {
+        document.getElementById("app").innerHTML =
+          `<div class="error">Waiting for the first E1002 sensor reading.<br><br>
+          Run the GitHub Action once, then refresh this page.</div>`;
+
+        console.error(error);
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
