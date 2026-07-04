@@ -155,7 +155,7 @@
     <header>
       <div>
         <h1>E1002 Health Monitor</h1>
-        <div class="subtitle">Battery, temperature and humidity · 7-day history</div>
+        <div class="subtitle">Battery, temperature and humidity · today’s hourly trend</div>
       </div>
 
       <div class="updated">
@@ -186,7 +186,7 @@
         <div class="chart-info">
           <div class="chart-title">Battery level</div>
           <div class="chart-value" id="battery-value">--%</div>
-          <div class="range" id="battery-range">7-day range: --</div>
+          <div class="range" id="battery-range">Today range: --</div>
         </div>
         <div class="chart-wrap" id="battery-chart"></div>
       </article>
@@ -195,7 +195,7 @@
         <div class="chart-info">
           <div class="chart-title">Temperature</div>
           <div class="chart-value" id="temperature-value">--°C</div>
-          <div class="range" id="temperature-range">7-day range: --</div>
+          <div class="range" id="temperature-range">Today range: --</div>
         </div>
         <div class="chart-wrap" id="temperature-chart"></div>
       </article>
@@ -204,7 +204,7 @@
         <div class="chart-info">
           <div class="chart-title">Humidity</div>
           <div class="chart-value" id="humidity-value">--%</div>
-          <div class="range" id="humidity-range">7-day range: --</div>
+          <div class="range" id="humidity-range">Today range: --</div>
         </div>
         <div class="chart-wrap" id="humidity-chart"></div>
       </article>
@@ -212,13 +212,20 @@
 
     <div class="footer">
       <span>Captured hourly from SenseCraft HMI</span>
-      <span>History retained: 7 days</span>
+      <span>Display: today only · data retained: 7 days</span>
     </div>
   </main>
 
   <script>
     const DATA_URL = "./data/sensor-history.json";
     const SVG_NS = "http://www.w3.org/2000/svg";
+
+    const singaporeFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Singapore",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
 
     const fmtDate = timestamp =>
       new Intl.DateTimeFormat("en-SG", {
@@ -231,28 +238,73 @@
         hour12: true
       }).format(new Date(timestamp));
 
-    const dayLabel = timestamp =>
-      new Intl.DateTimeFormat("en-SG", {
+    function singaporeDayKey(timestamp) {
+      const parts = singaporeFormatter.formatToParts(new Date(timestamp));
+      const values = {};
+
+      parts.forEach(part => {
+        if (part.type !== "literal") {
+          values[part.type] = part.value;
+        }
+      });
+
+      return `${values.year}-${values.month}-${values.day}`;
+    }
+
+    function singaporeHour(timestamp) {
+      return new Intl.DateTimeFormat("en-SG", {
         timeZone: "Asia/Singapore",
-        weekday: "short"
+        hour: "2-digit",
+        hour12: false
       }).format(new Date(timestamp));
+    }
+
+    function singaporeMinutesSinceMidnight(timestamp) {
+      const parts = new Intl.DateTimeFormat("en-SG", {
+        timeZone: "Asia/Singapore",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(new Date(timestamp));
+
+      const values = {};
+
+      parts.forEach(part => {
+        if (part.type !== "literal") {
+          values[part.type] = Number(part.value);
+        }
+      });
+
+      return values.hour * 60 + values.minute;
+    }
 
     function svg(tag, attrs = {}) {
       const item = document.createElementNS(SVG_NS, tag);
-      Object.entries(attrs).forEach(([key, value]) => item.setAttribute(key, value));
+
+      Object.entries(attrs).forEach(([key, value]) => {
+        item.setAttribute(key, value);
+      });
+
       return item;
     }
 
-    function range(values, padding) {
+    function getRange(values, padding) {
       const min = Math.min(...values);
       const max = Math.max(...values);
 
       if (min === max) {
-        return { min: min - padding, max: max + padding };
+        return {
+          min: min - padding,
+          max: max + padding
+        };
       }
 
-      const extra = Math.max((max - min) * 0.15, padding);
-      return { min: min - extra, max: max + extra };
+      const extra = Math.max((max - min) * 0.18, padding);
+
+      return {
+        min: min - extra,
+        max: max + extra
+      };
     }
 
     function drawChart(containerId, readings, metric, fixedRange) {
@@ -266,14 +318,14 @@
       const plotH = height - p.top - p.bottom;
 
       const values = readings.map(item => Number(item[metric]));
-      const yRange = fixedRange || range(values, metric === "battery" ? 4 : 0.8);
+      const yRange = fixedRange || getRange(values, metric === "battery" ? 4 : 0.8);
 
       const root = svg("svg", {
         viewBox: `0 0 ${width} ${height}`,
         preserveAspectRatio: "none"
       });
 
-      for (let i = 0; i <= 3; i++) {
+      for (let i = 0; i <= 3; i += 1) {
         const y = p.top + (plotH / 3) * i;
         const value = yRange.max - ((yRange.max - yRange.min) / 3) * i;
 
@@ -319,65 +371,67 @@
         "stroke-width": 1
       }));
 
-      const points = readings.map((reading, index) => {
-        const x = readings.length === 1
-          ? p.left + plotW / 2
-          : p.left + (index / (readings.length - 1)) * plotW;
+      const points = readings.map(reading => {
+        const minutes = singaporeMinutesSinceMidnight(reading.timestamp);
+        const x = p.left + (minutes / 1440) * plotW;
 
-        const normalized = (Number(reading[metric]) - yRange.min) /
+        const normalized =
+          (Number(reading[metric]) - yRange.min) /
           (yRange.max - yRange.min);
 
         return {
           x,
-          y: p.top + plotH - normalized * plotH,
-          timestamp: reading.timestamp
+          y: p.top + plotH - normalized * plotH
         };
       });
 
-      const path = points
-        .map((point, index) =>
-          `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
-        )
-        .join(" ");
+      if (points.length > 1) {
+        const path = points
+          .map((point, index) =>
+            `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+          )
+          .join(" ");
 
-      root.appendChild(svg("path", {
-        d: path,
-        fill: "none",
-        stroke: "#111",
-        "stroke-width": 1.7,
-        "stroke-linecap": "round",
-        "stroke-linejoin": "round"
-      }));
+        root.appendChild(svg("path", {
+          d: path,
+          fill: "none",
+          stroke: "#111",
+          "stroke-width": 2,
+          "stroke-linecap": "round",
+          "stroke-linejoin": "round"
+        }));
+      }
 
       points.forEach(point => {
         root.appendChild(svg("circle", {
           cx: point.x,
           cy: point.y,
-          r: 1.5,
+          r: 2,
           fill: "#111"
         }));
       });
 
-      const shown = new Set();
+      [0, 4, 8, 12, 16, 20, 24].forEach(hour => {
+        const x = p.left + ((hour * 60) / 1440) * plotW;
 
-      points.forEach((point, index) => {
-        const label = dayLabel(point.timestamp);
-
-        if (index !== 0 && index !== points.length - 1 && shown.has(label)) {
-          return;
-        }
-
-        shown.add(label);
+        root.appendChild(svg("line", {
+          x1: x,
+          y1: height - p.bottom,
+          x2: x,
+          y2: height - p.bottom + 3,
+          stroke: "#111",
+          "stroke-width": 1
+        }));
 
         const text = svg("text", {
-          x: point.x,
+          x,
           y: height - 5,
-          "text-anchor": "middle",
+          "text-anchor": hour === 24 ? "end" : "middle",
           "font-size": 8,
           fill: "#555"
         });
 
-        text.textContent = label;
+        text.textContent = hour === 24 ? "24" : String(hour).padStart(2, "0");
         root.appendChild(text);
       });
 
@@ -393,7 +447,7 @@
       document.getElementById(`${metric}-now`).textContent = latestText;
       document.getElementById(`${metric}-value`).textContent = latestText;
       document.getElementById(`${metric}-range`).textContent =
-        `7-day range: ${min}–${max}${unit}`;
+        `Today range: ${min}–${max}${unit}`;
     }
 
     async function loadDashboard() {
@@ -408,7 +462,7 @@
 
         const data = await response.json();
 
-        const readings = data.readings
+        const allReadings = (data.readings || [])
           .filter(item =>
             item.timestamp &&
             Number.isFinite(Number(item.battery)) &&
@@ -417,8 +471,14 @@
           )
           .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
+        const todayKey = singaporeDayKey(new Date().toISOString());
+
+        const readings = allReadings.filter(item =>
+          singaporeDayKey(item.timestamp) === todayKey
+        );
+
         if (!readings.length) {
-          throw new Error("No sensor readings available yet.");
+          throw new Error("No readings captured for today yet.");
         }
 
         const latest = readings[readings.length - 1];
@@ -430,14 +490,23 @@
         updateMetric("temperature", latest, readings, "°C", 1);
         updateMetric("humidity", latest, readings, "%", 0);
 
-        drawChart("battery-chart", readings, "battery", { min: 0, max: 100 });
+        drawChart("battery-chart", readings, "battery", {
+          min: 0,
+          max: 100
+        });
+
         drawChart("temperature-chart", readings, "temperature");
-        drawChart("humidity-chart", readings, "humidity", { min: 0, max: 100 });
+        drawChart("humidity-chart", readings, "humidity", {
+          min: 0,
+          max: 100
+        });
 
       } catch (error) {
         document.getElementById("app").innerHTML =
-          `<div class="error">Waiting for the first E1002 sensor reading.<br><br>
-          Run the GitHub Action once, then refresh this page.</div>`;
+          `<div class="error">
+            Waiting for today’s E1002 readings.<br><br>
+            The first chart point will appear after the workflow captures data.
+          </div>`;
 
         console.error(error);
       }
