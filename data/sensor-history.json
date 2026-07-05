@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-05T14:48:46.054Z",
+  "updatedAt": "2026-07-05T16:14:51.346Z",
   "readings": [
     {
       "timestamp": "2026-07-04T01:07:44.722Z",
@@ -133,6 +133,13 @@
       "charging": false,
       "temperature": 31.8,
       "humidity": 66.6
+    },
+    {
+      "timestamp": "2026-07-05T16:14:51.346Z",
+      "battery": 53,
+      "charging": false,
+      "temperature": 31.7,
+      "humidity": 66.8
     }
   ]
 }
