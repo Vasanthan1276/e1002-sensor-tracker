@@ -25,6 +25,8 @@ jobs:
           const path = require("path");
 
           const deviceId = "20223417";
+          const retentionDays = 366;
+
           const endpoint =
             `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
 
@@ -48,15 +50,7 @@ jobs:
               );
             }
 
-            let payload;
-
-            try {
-              payload = JSON.parse(responseText);
-            } catch {
-              throw new Error(
-                `SenseCraft API returned invalid JSON: ${responseText}`
-              );
-            }
+            const payload = JSON.parse(responseText);
 
             if (payload.code !== 200 || !payload.result) {
               throw new Error(
@@ -98,14 +92,11 @@ jobs:
             };
 
             if (fs.existsSync(historyFile)) {
-              try {
-                history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
-              } catch {
-                console.log("Existing history file was invalid; starting fresh.");
-              }
+              history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
             }
 
-            const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+            const cutoff =
+              Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
 
             history.readings = Array.isArray(history.readings)
               ? history.readings
@@ -132,8 +123,8 @@ jobs:
               "utf8"
             );
 
-            console.log("Sensor history saved successfully.");
-            console.log("Saved reading:", JSON.stringify(reading));
+            console.log("Saved E1002 reading:", reading);
+            console.log(`Retaining ${retentionDays} days of history.`);
           }
 
           main().catch(error => {
