@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>E1002 Sensor History</title>
+
+  <style>
+    :root {
+      --ink: #111;
+      --muted: #666;
+      --grid: #d8d8d8;
+      --paper: #fff;
+      --soft: #f4f4f4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #app {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+    }
+
+    .subtitle,
+    .updated,
+    .range,
+    .footer {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+    }
+
+    .updated {
+      text-align: right;
+      line-height: 1.45;
+      white-space: nowrap;
+    }
+
+    .updated strong {
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .periods {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .periods button {
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .periods button.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--ink);
+      padding: 10px 12px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .value {
+      margin-top: 5px;
+      font-size: 31px;
+      font-weight: 700;
+    }
+
+    .charts {
+      display: grid;
+      gap: 12px;
+    }
+
+    .chart-box {
+      border: 1px solid var(--ink);
+      padding: 12px;
+    }
+
+    .chart-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 15px;
+      margin-bottom: 8px;
+    }
+
+    .chart-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .chart-value {
+      font-size: 21px;
+      font-weight: 700;
+    }
+
+    .chart-wrap {
+      height: 190px;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .error {
+      padding: 40px 20px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 650px) {
+      #app {
+        padding: 12px;
+      }
+
+      header {
+        display: block;
+      }
+
+      .updated {
+        margin-top: 8px;
+        text-align: left;
+      }
+
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-wrap {
+        height: 165px;
+      }
+
+      .footer {
+        display: block;
+        line-height: 1.6;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main id="app">
+    <header>
+      <div>
+        <h1>E1002 Sensor History</h1>
+        <div class="subtitle" id="subtitle">
+          Loading battery, temperature and humidity history…
+        </div>
+      </div>
+
+      <div class="updated">
+        <strong id="updated">Loading…</strong><br>
+        Latest E1002 sensor record
+      </div>
+    </header>
+
+    <section class="periods">
+      <button data-range="24h">Last 24 hours</button>
+      <button data-range="7d" class="active">Last 7 days</button>
+      <button data-range="30d">Last 30 days</button>
+      <button data-range="12m">Last 12 months</button>
+    </section>
+
+    <section class="cards">
+      <div class="card">
+        <div class="label">Battery</div>
+        <div class="value" id="battery-now">--%</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Temperature</div>
+        <div class="value" id="temperature-now">--°C</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Humidity</div>
+        <div class="value" id="humidity-now">--%</div>
+      </div>
+    </section>
+
+    <section class="charts">
+      <article class="chart-box">
+        <div class="chart-heading">
+          <div>
+            <div class="chart-title">Battery level</div>
+            <div class="range" id="battery-range">Range: --</div>
+          </div>
+          <div class="chart-value" id="battery-value">--%</div>
+        </div>
+        <div class="chart-wrap" id="battery-chart"></div>
+      </article>
+
+      <article class="chart-box">
+        <div class="chart-heading">
+          <div>
+            <div class="chart-title">Temperature</div>
+            <div class="range" id="temperature-range">Range: --</div>
+          </div>
+          <div class="chart-value" id="temperature-value">--°C</div>
+        </div>
+        <div class="chart-wrap" id="temperature-chart"></div>
+      </article>
+
+      <article class="chart-box">
+        <div class="chart-heading">
+          <div>
+            <div class="chart-title">Humidity</div>
+            <div class="range" id="humidity-range">Range: --</div>
+          </div>
+          <div class="chart-value" id="humidity-value">--%</div>
+        </div>
+        <div class="chart-wrap" id="humidity-chart"></div>
+      </article>
+    </section>
+
+    <div class="footer">
+      <span>Source: SenseCraft E1002 sensor API</span>
+      <span id="retention">Data retention: 12 months</span>
+    </div>
+  </main>
+
+  <script>
+    const DATA_URL = "./data/sensor-history.json";
+    const SVG_NS = "http://www.w3.org/2000/svg";
+
+    const ranges = {
+      "24h": { hours: 24, title: "Last 24 hours", bucketHours: 1 },
+      "7d": { hours: 7 * 24, title: "Last 7 days", bucketHours: 1 },
+      "30d": { hours: 30 * 24, title: "Last 30 days", bucketHours: 6 },
+      "12m": { hours: 366 * 24, title: "Last 12 months", bucketHours: 24 }
+    };
+
+    let activeRange = "7d";
+    let allReadings = [];
+    let updatedAt = null;
+
+    function formatDateTime(timestamp) {
+      return new Intl.DateTimeFormat("en-SG", {
+        timeZone: "Asia/Singapore",
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      }).format(new Date(timestamp));
+    }
+
+    function formatTick(timestamp, rangeKey) {
+      const options = {
+        timeZone: "Asia/Singapore"
+      };
+
+      if (rangeKey === "24h") {
+        return new Intl.DateTimeFormat("en-SG", {
+          ...options,
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        }).format(new Date(timestamp));
+      }
+
+      if (rangeKey === "7d") {
+        return new Intl.DateTimeFormat("en-SG", {
+          ...options,
+          weekday: "short",
+          day: "2-digit"
+        }).format(new Date(timestamp));
+      }
+
+      if (rangeKey === "30d") {
+        return new Intl.DateTimeFormat("en-SG", {
+          ...options,
+          day: "2-digit",
+          month: "short"
+        }).format(new Date(timestamp));
+      }
+
+      return new Intl.DateTimeFormat("en-SG", {
+        ...options,
+        month: "short"
+      }).format(new Date(timestamp));
+    }
+
+    function svg(tag, attributes = {}) {
+      const element = document.createElementNS(SVG_NS, tag);
+
+      Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, value);
+      });
+
+      return element;
+    }
+
+    function getRange(values, padding) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+
+      if (min === max) {
+        return {
+          min: min - padding,
+          max: max + padding
+        };
+      }
+
+      const extra = Math.max((max - min) * 0.15, padding);
+
+      return {
+        min: min - extra,
+        max: max + extra
+      };
+    }
+
+    function aggregate(readings, metric, bucketHours) {
+      if (bucketHours <= 1) {
+        return readings.map(item => ({
+          timestamp: item.timestamp,
+          value: Number(item[metric])
+        }));
+      }
+
+      const buckets = new Map();
+      const bucketMs = bucketHours * 60 * 60 * 1000;
+
+      readings.forEach(reading => {
+        const time = new Date(reading.timestamp).getTime();
+        const key = Math.floor(time / bucketMs) * bucketMs;
+
+        if (!buckets.has(key)) {
+          buckets.set(key, []);
+        }
+
+        buckets.get(key).push(reading);
+      });
+
+      return [...buckets.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([time, items]) => {
+          const values = items.map(item => Number(item[metric]));
+
+          const value = metric === "battery"
+            ? values[values.length - 1]
+            : values.reduce((total, item) => total + item, 0) / values.length;
+
+          return {
+            timestamp: new Date(time).toISOString(),
+            value
+          };
+        });
+    }
+
+    function drawChart(containerId, readings, metric, fixedRange = null) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+
+      const config = ranges[activeRange];
+      const points = aggregate(readings, metric, config.bucketHours);
+
+      const width = 960;
+      const height = 190;
+      const p = { top: 12, right: 12, bottom: 28, left: 44 };
+      const plotWidth = width - p.left - p.right;
+      const plotHeight = height - p.top - p.bottom;
+
+      const values = points.map(point => point.value);
+      const yRange = fixedRange || getRange(
+        values,
+        metric === "temperature" ? 0.8 : 4
+      );
+
+      const firstTime = new Date(points[0].timestamp).getTime();
+      const lastTime = new Date(points[points.length - 1].timestamp).getTime();
+      const timeSpan = Math.max(lastTime - firstTime, 1);
+
+      const root = svg("svg", {
+        viewBox: `0 0 ${width} ${height}`,
+        preserveAspectRatio: "none"
+      });
+
+      for (let i = 0; i <= 4; i += 1) {
+        const y = p.top + (plotHeight / 4) * i;
+        const value = yRange.max - ((yRange.max - yRange.min) / 4) * i;
+
+        root.appendChild(svg("line", {
+          x1: p.left,
+          y1: y,
+          x2: width - p.right,
+          y2: y,
+          stroke: "#d8d8d8",
+          "stroke-width": 1
+        }));
+
+        const label = svg("text", {
+          x: p.left - 6,
+          y: y + 4,
+          "text-anchor": "end",
+          "font-size": 10,
+          fill: "#666"
+        });
+
+        label.textContent = metric === "temperature"
+          ? value.toFixed(1)
+          : Math.round(value);
+
+        root.appendChild(label);
+      }
+
+      root.appendChild(svg("line", {
+        x1: p.left,
+        y1: p.top,
+        x2: p.left,
+        y2: height - p.bottom,
+        stroke: "#111",
+        "stroke-width": 1
+      }));
+
+      root.appendChild(svg("line", {
+        x1: p.left,
+        y1: height - p.bottom,
+        x2: width - p.right,
+        y2: height - p.bottom,
+        stroke: "#111",
+        "stroke-width": 1
+      }));
+
+      const plotted = points.map(point => {
+        const time = new Date(point.timestamp).getTime();
+        const x = p.left + ((time - firstTime) / timeSpan) * plotWidth;
+        const normalized = (point.value - yRange.min) / (yRange.max - yRange.min);
+        const y = p.top + plotHeight - normalized * plotHeight;
+
+        return { ...point, x, y };
+      });
+
+      if (plotted.length > 1) {
+        const path = plotted
+          .map((point, index) =>
+            `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+          )
+          .join(" ");
+
+        root.appendChild(svg("path", {
+          d: path,
+          fill: "none",
+          stroke: "#111",
+          "stroke-width": 2,
+          "stroke-linecap": "round",
+          "stroke-linejoin": "round"
+        }));
+      }
+
+      const markerStep = Math.max(1, Math.floor(plotted.length / 70));
+
+      plotted.forEach((point, index) => {
+        if (index % markerStep !== 0 && index !== plotted.length - 1) {
+          return;
+        }
+
+        root.appendChild(svg("circle", {
+          cx: point.x,
+          cy: point.y,
+          r: 1.7,
+          fill: "#111"
+        }));
+      });
+
+      const tickCount = 6;
+
+      for (let i = 0; i <= tickCount; i += 1) {
+        const fraction = i / tickCount;
+        const time = firstTime + (timeSpan * fraction);
+        const x = p.left + (plotWidth * fraction);
+
+        root.appendChild(svg("line", {
+          x1: x,
+          y1: height - p.bottom,
+          x2: x,
+          y2: height - p.bottom + 4,
+          stroke: "#111",
+          "stroke-width": 1
+        }));
+
+        const label = svg("text", {
+          x,
+          y: height - 8,
+          "text-anchor": i === 0 ? "start" : i === tickCount ? "end" : "middle",
+          "font-size": 10,
+          fill: "#555"
+        });
+
+        label.textContent = formatTick(new Date(time).toISOString(), activeRange);
+        root.appendChild(label);
+      }
+
+      container.appendChild(root);
+    }
+
+    function updateMetric(metric, latest, visibleReadings, unit, decimals) {
+      const values = visibleReadings.map(item => Number(item[metric]));
+      const latestText = `${Number(latest[metric]).toFixed(decimals)}${unit}`;
+      const min = Math.min(...values).toFixed(decimals);
+      const max = Math.max(...values).toFixed(decimals);
+
+      document.getElementById(`${metric}-now`).textContent = latestText;
+      document.getElementById(`${metric}-value`).textContent = latestText;
+      document.getElementById(`${metric}-range`).textContent =
+        `${ranges[activeRange].title} range: ${min}–${max}${unit}`;
+    }
+
+    function render() {
+      if (!allReadings.length) {
+        return;
+      }
+
+      const latest = allReadings[allReadings.length - 1];
+      const cutoff =
+        new Date(latest.timestamp).getTime() -
+        (ranges[activeRange].hours * 60 * 60 * 1000);
+
+      const visibleReadings = allReadings.filter(item =>
+        new Date(item.timestamp).getTime() >= cutoff
+      );
+
+      document.getElementById("subtitle").textContent =
+        `${ranges[activeRange].title} · hourly E1002 sensor history`;
+
+      document.getElementById("updated").textContent =
+        formatDateTime(updatedAt || latest.timestamp);
+
+      updateMetric("battery", latest, visibleReadings, "%", 0);
+      updateMetric("temperature", latest, visibleReadings, "°C", 1);
+      updateMetric("humidity", latest, visibleReadings, "%", 0);
+
+      drawChart("battery-chart", visibleReadings, "battery", {
+        min: 0,
+        max: 100
+      });
+
+      drawChart("temperature-chart", visibleReadings, "temperature");
+
+      drawChart("humidity-chart", visibleReadings, "humidity", {
+        min: 0,
+        max: 100
+      });
+
+      document.querySelectorAll(".periods button").forEach(button => {
+        button.classList.toggle(
+          "active",
+          button.dataset.range === activeRange
+        );
+      });
+    }
+
+    async function loadData() {
+      try {
+        const response = await fetch(`${DATA_URL}?v=${Date.now()}`, {
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load sensor history.");
+        }
+
+        const data = await response.json();
+
+        allReadings = (data.readings || [])
+          .filter(item =>
+            item.timestamp &&
+            Number.isFinite(Number(item.battery)) &&
+            Number.isFinite(Number(item.temperature)) &&
+            Number.isFinite(Number(item.humidity))
+          )
+          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        updatedAt = data.updatedAt;
+
+        if (!allReadings.length) {
+          throw new Error("No sensor readings available.");
+        }
+
+        render();
+      } catch (error) {
+        document.getElementById("app").innerHTML =
+          `<div class="error">
+            Unable to load E1002 sensor history.
+          </div>`;
+
+        console.error(error);
+      }
+    }
+
+    document.querySelectorAll(".periods button").forEach(button => {
+      button.addEventListener("click", () => {
+        activeRange = button.dataset.range;
+        render();
+      });
+    });
+
+    loadData();
+
+    setInterval(loadData, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
