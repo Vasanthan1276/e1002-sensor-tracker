@@ -16,7 +16,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch E1002 sensor values and update history
+      - name: Fetch E1002 sensor values and inspect device status
         env:
           SENSECRAFT_API_KEY: ${{ secrets.SENSECRAFT_API_KEY }}
         run: |
@@ -59,6 +59,11 @@ jobs:
             }
 
             const result = payload.result;
+
+            console.log("========== SENSECRAFT RAW RESULT ==========");
+            console.log(JSON.stringify(result, null, 2));
+            console.log("============================================");
+            console.log("Top-level result fields:", Object.keys(result));
 
             const reading = {
               timestamp: new Date().toISOString(),
