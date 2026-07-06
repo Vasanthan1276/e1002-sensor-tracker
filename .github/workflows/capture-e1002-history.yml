@@ -16,7 +16,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch E1002 sensor values and inspect device status
+      - name: Fetch E1002 sensor values and update history
         env:
           SENSECRAFT_API_KEY: ${{ secrets.SENSECRAFT_API_KEY }}
         run: |
@@ -29,6 +29,17 @@ jobs:
 
           const endpoint =
             `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
+
+          function csvEscape(value) {
+            const text = value === null || value === undefined ? "" : String(value);
+            return `"${text.replace(/"/g, '""')}"`;
+          }
+
+          function statusLabel(rawStatus) {
+            if (rawStatus === 1) return "Online";
+            if (rawStatus === 3) return "Sleep";
+            return "Unknown";
+          }
 
           async function main() {
             if (!process.env.SENSECRAFT_API_KEY) {
@@ -60,24 +71,38 @@ jobs:
 
             const result = payload.result;
 
-            console.log("========== SENSECRAFT RAW RESULT ==========");
-            console.log(JSON.stringify(result, null, 2));
-            console.log("============================================");
-            console.log("Top-level result fields:", Object.keys(result));
+            const rawStatus = Number(result?.deviceStatus?.status);
+            const intervalSeconds = Number(result?.dataaccess?.interval);
 
             const reading = {
               timestamp: new Date().toISOString(),
+
               battery: Number(
                 result?.battery?.level ??
                 result?.battery?.voltage ??
                 result?.battery?.value
               ),
+
               charging: Boolean(result?.battery?.charging),
+
               temperature: Number(
                 result?.sensor?.temp ??
                 result?.sensor?.temperature
               ),
-              humidity: Number(result?.sensor?.humidity)
+
+              humidity: Number(result?.sensor?.humidity),
+
+              status: statusLabel(rawStatus),
+              rawStatus: Number.isFinite(rawStatus) ? rawStatus : null,
+
+              refreshIntervalMinutes: Number.isFinite(intervalSeconds)
+                ? Math.round(intervalSeconds / 60)
+                : null,
+
+              deepSleepDisabled:
+                result?.power?.deep_sleep_disabled === undefined
+                  ? null
+                  : Number(result.power.deep_sleep_disabled)
             };
 
             for (const key of ["battery", "temperature", "humidity"]) {
@@ -88,6 +113,7 @@ jobs:
 
             const folder = "data";
             const historyFile = path.join(folder, "sensor-history.json");
+            const csvFile = path.join(folder, "e1002-status-history.csv");
 
             fs.mkdirSync(folder, { recursive: true });
 
@@ -100,12 +126,12 @@ jobs:
               history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
             }
 
-            const cutoff =
-              Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
-
             history.readings = Array.isArray(history.readings)
               ? history.readings
               : [];
+
+            const cutoff =
+              Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
 
             history.readings.push(reading);
 
@@ -128,8 +154,40 @@ jobs:
               "utf8"
             );
 
+            const csvHeader = [
+              "timestamp",
+              "status",
+              "rawStatus",
+              "battery",
+              "charging",
+              "temperature",
+              "humidity",
+              "refreshIntervalMinutes",
+              "deepSleepDisabled"
+            ];
+
+            const csvRows = history.readings.map(item => [
+              item.timestamp,
+              item.status ?? "Unknown",
+              item.rawStatus ?? "",
+              item.battery ?? "",
+              item.charging ?? "",
+              item.temperature ?? "",
+              item.humidity ?? "",
+              item.refreshIntervalMinutes ?? "",
+              item.deepSleepDisabled ?? ""
+            ]);
+
+            const csvContent = [
+              csvHeader.map(csvEscape).join(","),
+              ...csvRows.map(row => row.map(csvEscape).join(","))
+            ].join("\n") + "\n";
+
+            fs.writeFileSync(csvFile, csvContent, "utf8");
+
             console.log("Saved E1002 reading:", reading);
             console.log(`Retaining ${retentionDays} days of history.`);
+            console.log(`Created CSV log: ${csvFile}`);
           }
 
           main().catch(error => {
@@ -143,12 +201,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/sensor-history.json
+          git add data/sensor-history.json data/e1002-status-history.csv
 
           if git diff --cached --quiet; then
             echo "No sensor-history changes to commit."
             exit 0
           fi
 
-          git commit -m "Update E1002 sensor history"
+          git commit -m "Update E1002 sensor and status history"
           git push
