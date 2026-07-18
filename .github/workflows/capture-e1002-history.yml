@@ -24,7 +24,7 @@ jobs:
           const fs = require("fs");
           const path = require("path");
 
-          const deviceId = "20223417";
+          const deviceId = "20230256";
           const retentionDays = 366;
 
           const endpoint =
