@@ -2,8 +2,7 @@ name: Capture E1002 Sensor History
 
 on:
   schedule:
-    - cron: "37 * * * *"
-    timezone: "Asia/Singapore"
+    - cron: "40 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +31,11 @@ jobs:
             `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
 
           function csvEscape(value) {
-            const text = value === null || value === undefined ? "" : String(value);
+            const text =
+              value === null || value === undefined
+                ? ""
+                : String(value);
+
             return `"${text.replace(/"/g, '""')}"`;
           }
 
@@ -72,8 +75,11 @@ jobs:
 
             const result = payload.result;
 
-            const rawStatus = Number(result?.deviceStatus?.status);
-            const intervalSeconds = Number(result?.dataaccess?.interval);
+            const rawStatus =
+              Number(result?.deviceStatus?.status);
+
+            const intervalSeconds =
+              Number(result?.dataaccess?.interval);
 
             const reading = {
               timestamp: new Date().toISOString(),
@@ -84,39 +90,69 @@ jobs:
                 result?.battery?.value
               ),
 
-              charging: Boolean(result?.battery?.charging),
+              charging: Boolean(
+                result?.battery?.charging
+              ),
 
               temperature: Number(
                 result?.sensor?.temp ??
                 result?.sensor?.temperature
               ),
 
-              humidity: Number(result?.sensor?.humidity),
+              humidity: Number(
+                result?.sensor?.humidity
+              ),
 
               status: statusLabel(rawStatus),
-              rawStatus: Number.isFinite(rawStatus) ? rawStatus : null,
 
-              refreshIntervalMinutes: Number.isFinite(intervalSeconds)
-                ? Math.round(intervalSeconds / 60)
-                : null,
+              rawStatus:
+                Number.isFinite(rawStatus)
+                  ? rawStatus
+                  : null,
+
+              refreshIntervalMinutes:
+                Number.isFinite(intervalSeconds)
+                  ? Math.round(intervalSeconds / 60)
+                  : null,
 
               deepSleepDisabled:
                 result?.power?.deep_sleep_disabled === undefined
                   ? null
-                  : Number(result.power.deep_sleep_disabled)
+                  : Number(
+                      result.power.deep_sleep_disabled
+                    )
             };
 
-            for (const key of ["battery", "temperature", "humidity"]) {
+            for (const key of [
+              "battery",
+              "temperature",
+              "humidity"
+            ]) {
               if (!Number.isFinite(reading[key])) {
-                throw new Error(`Invalid ${key} value from SenseCraft API.`);
+                throw new Error(
+                  `Invalid ${key} value from SenseCraft API.`
+                );
               }
             }
 
             const folder = "data";
-            const historyFile = path.join(folder, "sensor-history.json");
-            const csvFile = path.join(folder, "e1002-status-history.csv");
 
-            fs.mkdirSync(folder, { recursive: true });
+            const historyFile =
+              path.join(
+                folder,
+                "sensor-history.json"
+              );
+
+            const csvFile =
+              path.join(
+                folder,
+                "e1002-status-history.csv"
+              );
+
+            fs.mkdirSync(
+              folder,
+              { recursive: true }
+            );
 
             let history = {
               updatedAt: null,
@@ -124,34 +160,65 @@ jobs:
             };
 
             if (fs.existsSync(historyFile)) {
-              history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+              history =
+                JSON.parse(
+                  fs.readFileSync(
+                    historyFile,
+                    "utf8"
+                  )
+                );
             }
 
-            history.readings = Array.isArray(history.readings)
-              ? history.readings
-              : [];
+            history.readings =
+              Array.isArray(history.readings)
+                ? history.readings
+                : [];
 
             const cutoff =
-              Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+              Date.now() -
+              (
+                retentionDays *
+                24 *
+                60 *
+                60 *
+                1000
+              );
 
             history.readings.push(reading);
 
-            history.readings = history.readings
-              .filter(item => {
-                const time = new Date(item.timestamp).getTime();
-                return Number.isFinite(time) && time >= cutoff;
-              })
-              .sort(
-                (a, b) =>
-                  new Date(a.timestamp).getTime() -
-                  new Date(b.timestamp).getTime()
-              );
+            history.readings =
+              history.readings
+                .filter(item => {
+                  const time =
+                    new Date(
+                      item.timestamp
+                    ).getTime();
 
-            history.updatedAt = reading.timestamp;
+                  return (
+                    Number.isFinite(time) &&
+                    time >= cutoff
+                  );
+                })
+                .sort(
+                  (a, b) =>
+                    new Date(
+                      a.timestamp
+                    ).getTime() -
+                    new Date(
+                      b.timestamp
+                    ).getTime()
+                );
+
+            history.updatedAt =
+              reading.timestamp;
 
             fs.writeFileSync(
               historyFile,
-              `${JSON.stringify(history, null, 2)}\n`,
+              `${JSON.stringify(
+                history,
+                null,
+                2
+              )}\n`,
               "utf8"
             );
 
@@ -167,28 +234,52 @@ jobs:
               "deepSleepDisabled"
             ];
 
-            const csvRows = history.readings.map(item => [
-              item.timestamp,
-              item.status ?? "Unknown",
-              item.rawStatus ?? "",
-              item.battery ?? "",
-              item.charging ?? "",
-              item.temperature ?? "",
-              item.humidity ?? "",
-              item.refreshIntervalMinutes ?? "",
-              item.deepSleepDisabled ?? ""
-            ]);
+            const csvRows =
+              history.readings.map(
+                item => [
+                  item.timestamp,
+                  item.status ?? "Unknown",
+                  item.rawStatus ?? "",
+                  item.battery ?? "",
+                  item.charging ?? "",
+                  item.temperature ?? "",
+                  item.humidity ?? "",
+                  item.refreshIntervalMinutes ?? "",
+                  item.deepSleepDisabled ?? ""
+                ]
+              );
 
             const csvContent = [
-              csvHeader.map(csvEscape).join(","),
-              ...csvRows.map(row => row.map(csvEscape).join(","))
+              csvHeader
+                .map(csvEscape)
+                .join(","),
+
+              ...csvRows.map(
+                row =>
+                  row
+                    .map(csvEscape)
+                    .join(",")
+              )
             ].join("\n") + "\n";
 
-            fs.writeFileSync(csvFile, csvContent, "utf8");
+            fs.writeFileSync(
+              csvFile,
+              csvContent,
+              "utf8"
+            );
 
-            console.log("Saved E1002 reading:", reading);
-            console.log(`Retaining ${retentionDays} days of history.`);
-            console.log(`Created CSV log: ${csvFile}`);
+            console.log(
+              "Saved E1002 reading:",
+              reading
+            );
+
+            console.log(
+              `Retaining ${retentionDays} days of history.`
+            );
+
+            console.log(
+              `Created CSV log: ${csvFile}`
+            );
           }
 
           main().catch(error => {
