@@ -2,7 +2,8 @@ name: Capture E1002 Sensor History
 
 on:
   schedule:
-    - cron: "31 * * * *"
+    - cron: "37 * * * *"
+    timezone: "Asia/Singapore"
   workflow_dispatch:
 
 permissions:
