@@ -2,7 +2,7 @@ name: Capture E1002 Sensor History
 
 on:
   schedule:
-    - cron: "7 * * * *"
+    - cron: "30 * * * *"
   workflow_dispatch:
 
 permissions:
