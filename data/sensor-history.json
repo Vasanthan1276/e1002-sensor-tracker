@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-27T17:24:13.753Z",
+  "updatedAt": "2026-07-27T19:02:35.318Z",
   "readings": [
     {
       "timestamp": "2026-07-04T01:07:44.722Z",
@@ -1791,6 +1791,17 @@
       "charging": false,
       "temperature": 30.1,
       "humidity": 66.6,
+      "status": "Unknown",
+      "rawStatus": null,
+      "refreshIntervalMinutes": 60,
+      "deepSleepDisabled": 0
+    },
+    {
+      "timestamp": "2026-07-27T19:02:35.318Z",
+      "battery": 71,
+      "charging": false,
+      "temperature": 30.1,
+      "humidity": 67.1,
       "status": "Unknown",
       "rawStatus": null,
       "refreshIntervalMinutes": 60,
