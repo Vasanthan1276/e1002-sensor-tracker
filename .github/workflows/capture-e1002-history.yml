@@ -2,15 +2,23 @@ name: Capture E1002 Sensor History
 
 on:
   schedule:
-    - cron: "55 * * * *"
+    # Two opportunities every hour.
+    # Only one reading per ~hour will actually be saved.
+    - cron: "17,47 * * * *"
+
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: e1002-sensor-history
+  cancel-in-progress: false
+
 jobs:
   capture:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Check out repository
@@ -25,10 +33,30 @@ jobs:
           const path = require("path");
 
           const deviceId = "20230256";
+
+          // Keep approximately one year of data.
           const retentionDays = 366;
+
+          // We schedule GitHub twice per hour for redundancy,
+          // but normally save only one reading per hour.
+          const minimumSpacingMinutes = 50;
 
           const endpoint =
             `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
+
+          const folder = "data";
+
+          const historyFile =
+            path.join(
+              folder,
+              "sensor-history.json"
+            );
+
+          const csvFile =
+            path.join(
+              folder,
+              "e1002-status-history.csv"
+            );
 
           function csvEscape(value) {
             const text =
@@ -45,109 +73,59 @@ jobs:
             return "Unknown";
           }
 
+          function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+          }
+
+          async function fetchWithRetry(url, options, attempts = 3) {
+            let lastError;
+
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+              try {
+                const response =
+                  await fetch(
+                    url,
+                    options
+                  );
+
+                const responseText =
+                  await response.text();
+
+                if (!response.ok) {
+                  throw new Error(
+                    `SenseCraft API failed: ${response.status} ${responseText}`
+                  );
+                }
+
+                return JSON.parse(
+                  responseText
+                );
+
+              } catch (error) {
+                lastError = error;
+
+                console.error(
+                  `SenseCraft API attempt ${attempt}/${attempts} failed:`,
+                  error.message
+                );
+
+                if (attempt < attempts) {
+                  await sleep(
+                    attempt * 5000
+                  );
+                }
+              }
+            }
+
+            throw lastError;
+          }
+
           async function main() {
             if (!process.env.SENSECRAFT_API_KEY) {
-              throw new Error("SENSECRAFT_API_KEY is missing.");
-            }
-
-            const response = await fetch(endpoint, {
-              headers: {
-                "Api-Key": process.env.SENSECRAFT_API_KEY,
-                "Accept": "application/json"
-              }
-            });
-
-            const responseText = await response.text();
-
-            if (!response.ok) {
               throw new Error(
-                `SenseCraft API failed: ${response.status} ${responseText}`
+                "SENSECRAFT_API_KEY is missing."
               );
             }
-
-            const payload = JSON.parse(responseText);
-
-            if (payload.code !== 200 || !payload.result) {
-              throw new Error(
-                `Unexpected SenseCraft response: ${JSON.stringify(payload)}`
-              );
-            }
-
-            const result = payload.result;
-
-            const rawStatus =
-              Number(result?.deviceStatus?.status);
-
-            const intervalSeconds =
-              Number(result?.dataaccess?.interval);
-
-            const reading = {
-              timestamp: new Date().toISOString(),
-
-              battery: Number(
-                result?.battery?.level ??
-                result?.battery?.voltage ??
-                result?.battery?.value
-              ),
-
-              charging: Boolean(
-                result?.battery?.charging
-              ),
-
-              temperature: Number(
-                result?.sensor?.temp ??
-                result?.sensor?.temperature
-              ),
-
-              humidity: Number(
-                result?.sensor?.humidity
-              ),
-
-              status: statusLabel(rawStatus),
-
-              rawStatus:
-                Number.isFinite(rawStatus)
-                  ? rawStatus
-                  : null,
-
-              refreshIntervalMinutes:
-                Number.isFinite(intervalSeconds)
-                  ? Math.round(intervalSeconds / 60)
-                  : null,
-
-              deepSleepDisabled:
-                result?.power?.deep_sleep_disabled === undefined
-                  ? null
-                  : Number(
-                      result.power.deep_sleep_disabled
-                    )
-            };
-
-            for (const key of [
-              "battery",
-              "temperature",
-              "humidity"
-            ]) {
-              if (!Number.isFinite(reading[key])) {
-                throw new Error(
-                  `Invalid ${key} value from SenseCraft API.`
-                );
-              }
-            }
-
-            const folder = "data";
-
-            const historyFile =
-              path.join(
-                folder,
-                "sensor-history.json"
-              );
-
-            const csvFile =
-              path.join(
-                folder,
-                "e1002-status-history.csv"
-              );
 
             fs.mkdirSync(
               folder,
@@ -174,6 +152,163 @@ jobs:
                 ? history.readings
                 : [];
 
+            /*
+             * GitHub checks twice per hour.
+             *
+             * Scheduled executions are ignored when the
+             * previous saved reading is less than 50 minutes old.
+             *
+             * Manual workflow_dispatch runs are always allowed.
+             */
+            const eventName =
+              process.env.GITHUB_EVENT_NAME;
+
+            const lastReading =
+              history.readings.length > 0
+                ? history.readings[
+                    history.readings.length - 1
+                  ]
+                : null;
+
+            if (
+              eventName === "schedule" &&
+              lastReading?.timestamp
+            ) {
+              const lastTime =
+                new Date(
+                  lastReading.timestamp
+                ).getTime();
+
+              const minutesSinceLastReading =
+                (
+                  Date.now() -
+                  lastTime
+                ) / 60000;
+
+              if (
+                Number.isFinite(minutesSinceLastReading) &&
+                minutesSinceLastReading < minimumSpacingMinutes
+              ) {
+                console.log(
+                  `Last reading was ${minutesSinceLastReading.toFixed(1)} minutes ago.`
+                );
+
+                console.log(
+                  `Minimum spacing is ${minimumSpacingMinutes} minutes.`
+                );
+
+                console.log(
+                  "Nothing to save during this backup run."
+                );
+
+                return;
+              }
+            }
+
+            const payload =
+              await fetchWithRetry(
+                endpoint,
+                {
+                  headers: {
+                    "Api-Key":
+                      process.env.SENSECRAFT_API_KEY,
+
+                    "Accept":
+                      "application/json"
+                  }
+                }
+              );
+
+            if (
+              payload.code !== 200 ||
+              !payload.result
+            ) {
+              throw new Error(
+                `Unexpected SenseCraft response: ${JSON.stringify(payload)}`
+              );
+            }
+
+            const result =
+              payload.result;
+
+            const rawStatus =
+              Number(
+                result?.deviceStatus?.status
+              );
+
+            const intervalSeconds =
+              Number(
+                result?.dataaccess?.interval
+              );
+
+            const reading = {
+              timestamp:
+                new Date().toISOString(),
+
+              battery:
+                Number(
+                  result?.battery?.level ??
+                  result?.battery?.voltage ??
+                  result?.battery?.value
+                ),
+
+              charging:
+                Boolean(
+                  result?.battery?.charging
+                ),
+
+              temperature:
+                Number(
+                  result?.sensor?.temp ??
+                  result?.sensor?.temperature
+                ),
+
+              humidity:
+                Number(
+                  result?.sensor?.humidity
+                ),
+
+              status:
+                statusLabel(
+                  rawStatus
+                ),
+
+              rawStatus:
+                Number.isFinite(rawStatus)
+                  ? rawStatus
+                  : null,
+
+              refreshIntervalMinutes:
+                Number.isFinite(intervalSeconds)
+                  ? Math.round(
+                      intervalSeconds / 60
+                    )
+                  : null,
+
+              deepSleepDisabled:
+                result?.power?.deep_sleep_disabled === undefined
+                  ? null
+                  : Number(
+                      result.power.deep_sleep_disabled
+                    )
+            };
+
+            for (const key of [
+              "battery",
+              "temperature",
+              "humidity"
+            ]) {
+              if (
+                !Number.isFinite(
+                  reading[key]
+                )
+              ) {
+                throw new Error(
+                  `Invalid ${key} value from SenseCraft API.`
+                );
+              }
+            }
+
             const cutoff =
               Date.now() -
               (
@@ -184,7 +319,9 @@ jobs:
                 1000
               );
 
-            history.readings.push(reading);
+            history.readings.push(
+              reading
+            );
 
             history.readings =
               history.readings
@@ -271,6 +408,10 @@ jobs:
             console.log(
               "Saved E1002 reading:",
               reading
+            );
+
+            console.log(
+              `E1002 reports refresh interval: ${reading.refreshIntervalMinutes} minutes.`
             );
 
             console.log(
