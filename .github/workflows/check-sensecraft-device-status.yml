@@ -1,0 +1,202 @@
+name: Check SenseCraft Device Status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Query SenseCraft status endpoints
+        env:
+          SENSECRAFT_API_KEY: ${{ secrets.SENSECRAFT_API_KEY }}
+        run: |
+          node <<'NODE'
+          const apiKey = process.env.SENSECRAFT_API_KEY;
+          const deviceId = "20230256";
+          const mac = "9C:13:9E:AB:F6:94";
+
+          if (!apiKey) {
+            throw new Error("SENSECRAFT_API_KEY is missing.");
+          }
+
+          async function getJson(url) {
+            const response = await fetch(url, {
+              headers: {
+                "api-key": apiKey,
+                "Api-Key": apiKey,
+                "Accept": "application/json"
+              }
+            });
+
+            const text = await response.text();
+
+            if (!response.ok) {
+              throw new Error(
+                `${url} failed: HTTP ${response.status} ${text}`
+              );
+            }
+
+            try {
+              return JSON.parse(text);
+            } catch {
+              throw new Error(`Invalid JSON from ${url}: ${text}`);
+            }
+          }
+
+          console.log("==================================================");
+          console.log("SenseCraft HMI status diagnostic");
+          console.log("Time:", new Date().toISOString());
+          console.log("Device ID:", deviceId);
+          console.log("MAC:", mac);
+          console.log("==================================================");
+
+          // --------------------------------------------------
+          // 1) Current endpoint used by the Health Monitor
+          // --------------------------------------------------
+          const iotUrl =
+            `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
+
+          const iotPayload = await getJson(iotUrl);
+          const iotResult = iotPayload?.result || {};
+
+          console.log("");
+          console.log("1) /api/v1/user/device/iot_data");
+          console.log("--------------------------------");
+
+          console.log(
+            "battery:",
+            iotResult?.battery?.level ??
+            iotResult?.battery?.voltage ??
+            iotResult?.battery?.value ??
+            null
+          );
+
+          console.log(
+            "deviceStatus.status:",
+            iotResult?.deviceStatus?.status ?? null
+          );
+
+          console.log(
+            "refresh interval seconds:",
+            iotResult?.dataaccess?.interval ?? null
+          );
+
+          console.log(
+            "deep_sleep_disabled:",
+            iotResult?.power?.deep_sleep_disabled ?? null
+          );
+
+          // --------------------------------------------------
+          // 2) Official Seeed v2 device-list endpoint
+          // --------------------------------------------------
+          const listUrl =
+            "https://sensecraft-hmi-api.seeed.cc/api/v2/user/device/list";
+
+          const listPayload = await getJson(listUrl);
+
+          const source =
+            Array.isArray(listPayload?.result)
+              ? listPayload.result
+              : listPayload?.result?.list ||
+                listPayload?.result?.devices ||
+                listPayload?.result?.items ||
+                [];
+
+          const normalizedMac = mac.toLowerCase();
+
+          const device =
+            source.find(
+              item => String(item?.id) === String(deviceId)
+            ) ||
+            source.find(
+              item =>
+                String(
+                  item?.mac_address ??
+                  item?.macAddress ??
+                  ""
+                ).toLowerCase() === normalizedMac
+            );
+
+          console.log("");
+          console.log("2) /api/v2/user/device/list");
+          console.log("--------------------------------");
+
+          if (!device) {
+            console.log("Target device was not found.");
+            console.log(
+              "Returned devices:",
+              source.map(item => ({
+                id: item?.id ?? null,
+                device_name:
+                  item?.device_name ??
+                  item?.name ??
+                  null,
+                mac_address:
+                  item?.mac_address ??
+                  item?.macAddress ??
+                  null
+              }))
+            );
+            process.exit(1);
+          }
+
+          console.log(
+            "id:",
+            device?.id ?? null
+          );
+
+          console.log(
+            "device_name:",
+            device?.device_name ??
+            device?.name ??
+            null
+          );
+
+          console.log(
+            "mac_address:",
+            device?.mac_address ??
+            device?.macAddress ??
+            null
+          );
+
+          console.log(
+            "online_status:",
+            device?.online_status ?? null
+          );
+
+          // Show other potentially relevant status/presence fields,
+          // without printing API keys or unrelated account data.
+          const interesting = {};
+
+          for (const [key, value] of Object.entries(device)) {
+            if (
+              /status|online|offline|sleep|battery|last|time|connect|heartbeat/i
+                .test(key)
+            ) {
+              interesting[key] = value;
+            }
+          }
+
+          console.log("");
+          console.log("Other status-related fields:");
+          console.log(
+            JSON.stringify(interesting, null, 2)
+          );
+
+          console.log("");
+          console.log("Available device keys:");
+          console.log(
+            Object.keys(device).sort().join(", ")
+          );
+
+          console.log("");
+          console.log("==================================================");
+          console.log("Diagnostic complete.");
+          console.log("==================================================");
+          NODE
