@@ -5,8 +5,13 @@ const DEVICE_ID = "20230256";
 const RETENTION_DAYS = 366;
 const MINIMUM_SPACING_MINUTES = 50;
 
-const ENDPOINT =
+const DEVICE_MAC = "9C:13:9E:AB:F6:94";
+
+const IOT_ENDPOINT =
   `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${DEVICE_ID}`;
+
+const DEVICE_LIST_ENDPOINT =
+  "https://sensecraft-hmi-api.seeed.cc/api/v2/user/device/list";
 
 const DATA_DIR = "data";
 const HISTORY_FILE = path.join(DATA_DIR, "sensor-history.json");
@@ -25,7 +30,66 @@ function csvEscape(value) {
 function statusLabel(rawStatus) {
   if (rawStatus === 1) return "Online";
   if (rawStatus === 3) return "Sleep";
-  return "Unknown";
+  if (rawStatus === 0) return "Offline";
+
+  // Keep unconfirmed status codes visible rather than guessing.
+  return Number.isFinite(rawStatus)
+    ? `Unknown (${rawStatus})`
+    : "Status unavailable";
+}
+
+function normalizeLastSeen(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  const milliseconds =
+    numeric < 100000000000
+      ? numeric * 1000
+      : numeric;
+
+  const date = new Date(milliseconds);
+
+  return Number.isFinite(date.getTime())
+    ? date.toISOString()
+    : null;
+}
+
+function findTargetDevice(payload) {
+  const result = payload?.result;
+
+  const devices =
+    Array.isArray(result)
+      ? result
+      : result?.list ||
+        result?.devices ||
+        result?.items ||
+        result?.rows ||
+        result?.data ||
+        [];
+
+  if (!Array.isArray(devices)) {
+    return null;
+  }
+
+  const normalizedMac = DEVICE_MAC.toLowerCase();
+
+  return (
+    devices.find(
+      item => String(item?.id) === String(DEVICE_ID)
+    ) ||
+    devices.find(
+      item =>
+        String(
+          item?.mac_address ??
+          item?.macAddress ??
+          ""
+        ).toLowerCase() === normalizedMac
+    ) ||
+    null
+  );
 }
 
 async function fetchWithRetry(url, options, attempts = 3) {
@@ -273,6 +337,19 @@ function generateStaticDashboard(history) {
     history.updatedAt || latest.timestamp
   );
 
+  const latestStatus =
+    latest.status || "Status unavailable";
+
+  const latestLastSeen =
+    latest.lastSeen
+      ? new Intl.DateTimeFormat("en-SG", {
+          timeZone: "Asia/Singapore",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        }).format(new Date(latest.lastSeen))
+      : "n/a";
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -497,7 +574,7 @@ function generateStaticDashboard(history) {
     </section>
 
     <div class="footer">
-      <span>Generated hourly from SenseCraft HMI</span>
+      <span>Status: ${latestStatus} · Last seen: ${latestLastSeen}</span>
       <span>Static v2 · data retained: ${RETENTION_DAYS} days</span>
     </div>
   </main>
@@ -560,25 +637,84 @@ async function main() {
     }
   }
 
-  const payload = await fetchWithRetry(ENDPOINT, {
+  const requestOptions = {
     headers: {
       "Api-Key": process.env.SENSECRAFT_API_KEY,
       "Accept": "application/json"
     }
-  });
+  };
 
-  if (payload.code !== 200 || !payload.result) {
+  const iotPayload = await fetchWithRetry(
+    IOT_ENDPOINT,
+    requestOptions
+  );
+
+  if (iotPayload.code !== 200 || !iotPayload.result) {
     throw new Error(
-      `Unexpected SenseCraft response: ${JSON.stringify(payload)}`
+      `Unexpected SenseCraft IOT response: ${JSON.stringify(iotPayload)}`
     );
   }
 
-  const result = payload.result;
-  const rawStatus = Number(result?.deviceStatus?.status);
+  const result = iotPayload.result;
   const intervalSeconds = Number(result?.dataaccess?.interval);
 
+  let device = null;
+  let statusSource = "v2-device-list";
+
+  try {
+    const devicePayload = await fetchWithRetry(
+      DEVICE_LIST_ENDPOINT,
+      requestOptions
+    );
+
+    if (devicePayload.code !== 200) {
+      throw new Error(
+        `Unexpected device-list response: ${JSON.stringify(devicePayload)}`
+      );
+    }
+
+    device = findTargetDevice(devicePayload);
+
+    if (!device) {
+      throw new Error(
+        `Device ${DEVICE_ID} / ${DEVICE_MAC} was not found in device list.`
+      );
+    }
+  } catch (error) {
+    console.error(
+      "SenseCraft device-list status lookup failed:",
+      error.message
+    );
+    statusSource = "iot-data-fallback";
+  }
+
+  const listRawStatus = Number(device?.online_status);
+  const fallbackRawStatus = Number(result?.deviceStatus?.status);
+
+  const rawStatus =
+    Number.isFinite(listRawStatus)
+      ? listRawStatus
+      : Number.isFinite(fallbackRawStatus)
+        ? fallbackRawStatus
+        : null;
+
+  const pollTimestamp = new Date().toISOString();
+  const lastSeen = normalizeLastSeen(device?.last_seen);
+
+  const lastSeenAgeMinutes =
+    lastSeen
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(pollTimestamp).getTime() -
+              new Date(lastSeen).getTime()) /
+              60000
+          )
+        )
+      : null;
+
   const reading = {
-    timestamp: new Date().toISOString(),
+    timestamp: pollTimestamp,
     deviceId: DEVICE_ID,
 
     battery: Number(
@@ -598,10 +734,13 @@ async function main() {
 
     status: statusLabel(rawStatus),
 
-    rawStatus:
-      Number.isFinite(rawStatus)
-        ? rawStatus
-        : null,
+    rawStatus,
+
+    statusSource,
+
+    lastSeen,
+
+    lastSeenAgeMinutes,
 
     refreshIntervalMinutes:
       Number.isFinite(intervalSeconds)
@@ -611,7 +750,12 @@ async function main() {
     deepSleepDisabled:
       result?.power?.deep_sleep_disabled === undefined
         ? null
-        : Number(result.power.deep_sleep_disabled)
+        : Number(result.power.deep_sleep_disabled),
+
+    targetDeepSleepEnabled:
+      device?.target_deep_sleep_enabled === undefined
+        ? null
+        : Number(device.target_deep_sleep_enabled)
   };
 
   for (const key of ["battery", "temperature", "humidity"]) {
@@ -652,25 +796,33 @@ async function main() {
     "deviceId",
     "status",
     "rawStatus",
+    "statusSource",
+    "lastSeen",
+    "lastSeenAgeMinutes",
     "battery",
     "charging",
     "temperature",
     "humidity",
     "refreshIntervalMinutes",
-    "deepSleepDisabled"
+    "deepSleepDisabled",
+    "targetDeepSleepEnabled"
   ];
 
   const csvRows = history.readings.map(item => [
     item.timestamp,
     item.deviceId ?? "",
-    item.status ?? "Unknown",
+    item.status ?? "Status unavailable",
     item.rawStatus ?? "",
+    item.statusSource ?? "",
+    item.lastSeen ?? "",
+    item.lastSeenAgeMinutes ?? "",
     item.battery ?? "",
     item.charging ?? "",
     item.temperature ?? "",
     item.humidity ?? "",
     item.refreshIntervalMinutes ?? "",
-    item.deepSleepDisabled ?? ""
+    item.deepSleepDisabled ?? "",
+    item.targetDeepSleepEnabled ?? ""
   ]);
 
   const csvContent = [
@@ -689,6 +841,12 @@ async function main() {
   );
 
   console.log("Saved E1002 reading:", reading);
+  console.log(
+    `SenseCraft status: ${reading.status} (raw=${reading.rawStatus ?? "n/a"}, source=${reading.statusSource}).`
+  );
+  console.log(
+    `SenseCraft last seen: ${reading.lastSeen ?? "n/a"} (${reading.lastSeenAgeMinutes ?? "n/a"} min ago).`
+  );
   console.log(
     `E1002 reports refresh interval: ${reading.refreshIntervalMinutes} minutes.`
   );
