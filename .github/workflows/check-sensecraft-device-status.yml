@@ -25,10 +25,9 @@ jobs:
             throw new Error("SENSECRAFT_API_KEY is missing.");
           }
 
-          async function getJson(url) {
+          async function getPayload(url) {
             const response = await fetch(url, {
               headers: {
-                "api-key": apiKey,
                 "Api-Key": apiKey,
                 "Accept": "application/json"
               }
@@ -36,61 +35,91 @@ jobs:
 
             const text = await response.text();
 
-            if (!response.ok) {
+            let payload;
+            try {
+              payload = JSON.parse(text);
+            } catch {
               throw new Error(
-                `${url} failed: HTTP ${response.status} ${text}`
+                `${url} returned non-JSON: HTTP ${response.status} ${text}`
               );
             }
 
-            try {
-              return JSON.parse(text);
-            } catch {
-              throw new Error(`Invalid JSON from ${url}: ${text}`);
-            }
+            return {
+              httpStatus: response.status,
+              ok: response.ok,
+              payload
+            };
+          }
+
+          function printApiSummary(label, result) {
+            console.log("");
+            console.log(label);
+            console.log("--------------------------------");
+            console.log("HTTP status:", result.httpStatus);
+            console.log("API code:", result.payload?.code ?? null);
+            console.log(
+              "API message:",
+              result.payload?.message ??
+              result.payload?.msg ??
+              null
+            );
           }
 
           console.log("==================================================");
-          console.log("SenseCraft HMI status diagnostic");
+          console.log("SenseCraft HMI status diagnostic v2");
           console.log("Time:", new Date().toISOString());
           console.log("Device ID:", deviceId);
           console.log("MAC:", mac);
           console.log("==================================================");
 
           // --------------------------------------------------
-          // 1) Current endpoint used by the Health Monitor
+          // 1) Current endpoint used by Health Monitor
           // --------------------------------------------------
           const iotUrl =
             `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${deviceId}`;
 
-          const iotPayload = await getJson(iotUrl);
-          const iotResult = iotPayload?.result || {};
-
-          console.log("");
-          console.log("1) /api/v1/user/device/iot_data");
-          console.log("--------------------------------");
-
-          console.log(
-            "battery:",
-            iotResult?.battery?.level ??
-            iotResult?.battery?.voltage ??
-            iotResult?.battery?.value ??
-            null
+          const iot = await getPayload(iotUrl);
+          printApiSummary(
+            "1) /api/v1/user/device/iot_data",
+            iot
           );
 
-          console.log(
-            "deviceStatus.status:",
-            iotResult?.deviceStatus?.status ?? null
-          );
+          const iotResult = iot.payload?.result;
 
           console.log(
-            "refresh interval seconds:",
-            iotResult?.dataaccess?.interval ?? null
+            "Has result:",
+            Boolean(iotResult)
           );
 
-          console.log(
-            "deep_sleep_disabled:",
-            iotResult?.power?.deep_sleep_disabled ?? null
-          );
+          if (iotResult) {
+            console.log(
+              "battery:",
+              iotResult?.battery?.level ??
+              iotResult?.battery?.voltage ??
+              iotResult?.battery?.value ??
+              null
+            );
+
+            console.log(
+              "deviceStatus.status:",
+              iotResult?.deviceStatus?.status ?? null
+            );
+
+            console.log(
+              "refresh interval seconds:",
+              iotResult?.dataaccess?.interval ?? null
+            );
+
+            console.log(
+              "deep_sleep_disabled:",
+              iotResult?.power?.deep_sleep_disabled ?? null
+            );
+
+            console.log(
+              "Top-level result keys:",
+              Object.keys(iotResult).sort().join(", ")
+            );
+          }
 
           // --------------------------------------------------
           // 2) Official Seeed v2 device-list endpoint
@@ -98,80 +127,124 @@ jobs:
           const listUrl =
             "https://sensecraft-hmi-api.seeed.cc/api/v2/user/device/list";
 
-          const listPayload = await getJson(listUrl);
+          const list = await getPayload(listUrl);
+          printApiSummary(
+            "2) /api/v2/user/device/list",
+            list
+          );
+
+          const result = list.payload?.result;
+
+          console.log(
+            "Result type:",
+            Array.isArray(result)
+              ? "array"
+              : typeof result
+          );
+
+          if (
+            result &&
+            !Array.isArray(result) &&
+            typeof result === "object"
+          ) {
+            console.log(
+              "Result keys:",
+              Object.keys(result).sort().join(", ")
+            );
+          }
 
           const source =
-            Array.isArray(listPayload?.result)
-              ? listPayload.result
-              : listPayload?.result?.list ||
-                listPayload?.result?.devices ||
-                listPayload?.result?.items ||
+            Array.isArray(result)
+              ? result
+              : result?.list ||
+                result?.devices ||
+                result?.items ||
+                result?.rows ||
+                result?.data ||
                 [];
+
+          console.log(
+            "Device count:",
+            Array.isArray(source) ? source.length : 0
+          );
 
           const normalizedMac = mac.toLowerCase();
 
           const device =
-            source.find(
-              item => String(item?.id) === String(deviceId)
-            ) ||
-            source.find(
-              item =>
-                String(
-                  item?.mac_address ??
-                  item?.macAddress ??
-                  ""
-                ).toLowerCase() === normalizedMac
-            );
-
-          console.log("");
-          console.log("2) /api/v2/user/device/list");
-          console.log("--------------------------------");
+            Array.isArray(source)
+              ? (
+                  source.find(
+                    item =>
+                      String(item?.id) ===
+                      String(deviceId)
+                  ) ||
+                  source.find(
+                    item =>
+                      String(
+                        item?.mac_address ??
+                        item?.macAddress ??
+                        ""
+                      ).toLowerCase() === normalizedMac
+                  )
+                )
+              : null;
 
           if (!device) {
             console.log("Target device was not found.");
-            console.log(
-              "Returned devices:",
-              source.map(item => ({
-                id: item?.id ?? null,
-                device_name:
-                  item?.device_name ??
-                  item?.name ??
+
+            if (Array.isArray(source)) {
+              console.log(
+                "Returned device summaries:",
+                JSON.stringify(
+                  source.map(item => ({
+                    id: item?.id ?? null,
+                    device_name:
+                      item?.device_name ??
+                      item?.name ??
+                      null,
+                    mac_address:
+                      item?.mac_address ??
+                      item?.macAddress ??
+                      null,
+                    online_status:
+                      item?.online_status ?? null
+                  })),
                   null,
-                mac_address:
-                  item?.mac_address ??
-                  item?.macAddress ??
-                  null
-              }))
+                  2
+                )
+              );
+            }
+
+            console.log("");
+            console.log(
+              "The workflow is diagnostic only; no device settings were changed."
             );
-            process.exit(1);
+            process.exit(0);
           }
 
+          console.log("");
+          console.log("Matched device:");
           console.log(
             "id:",
             device?.id ?? null
           );
-
           console.log(
             "device_name:",
             device?.device_name ??
             device?.name ??
             null
           );
-
           console.log(
             "mac_address:",
             device?.mac_address ??
             device?.macAddress ??
             null
           );
-
           console.log(
             "online_status:",
             device?.online_status ?? null
           );
 
-          // Show other potentially relevant status/presence fields,
-          // without printing API keys or unrelated account data.
           const interesting = {};
 
           for (const [key, value] of Object.entries(device)) {
