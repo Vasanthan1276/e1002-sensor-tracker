@@ -4,7 +4,7 @@ on:
   schedule:
     # Two opportunities every hour.
     # Only one reading per ~hour will actually be saved.
-    - cron: "17,47 * * * *"
+    - cron: "7,22,37,52 * * * *"
 
   workflow_dispatch:
 
