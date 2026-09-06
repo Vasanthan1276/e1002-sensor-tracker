@@ -86,7 +86,7 @@
 
     .cards {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       margin-bottom: 12px;
     }
@@ -108,6 +108,13 @@
       margin-top: 5px;
       font-size: 31px;
       font-weight: 700;
+    }
+
+    .card-detail {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
     }
 
     .charts {
@@ -216,6 +223,13 @@
         <div class="label">Humidity</div>
         <div class="value" id="humidity-now">--%</div>
       </div>
+      <div class="card">
+        <div class="label">Estimated battery life</div>
+        <div class="value" id="battery-life-now">--</div>
+        <div class="card-detail" id="battery-life-detail">
+          Waiting for stable battery-only history…
+        </div>
+      </div>
     </section>
 
     <section class="charts">
@@ -226,6 +240,7 @@
             <div class="chart-meta">
               <span class="range" id="battery-range">Range: --</span>
               <span class="change" id="battery-change">Change: --</span>
+              <span class="change" id="battery-estimate-meta">Battery estimate: --</span>
             </div>
           </div>
           <div class="chart-value" id="battery-value">--%</div>
@@ -264,7 +279,7 @@
 
     <div class="footer">
       <span>Source: SenseCraft E1002 sensor API</span>
-      <span>Dynamic chart scale · firmware marker: v1.1.4</span>
+      <span>Dynamic chart scale · v1.1.4 marker · battery-life projection</span>
     </div>
   </main>
 
@@ -564,6 +579,176 @@
         `Change: ${formatDelta(delta, unit, decimals)}`;
     }
 
+    function linearRegressionSlope(points) {
+      if (points.length < 2) return null;
+
+      const xMean =
+        points.reduce((sum, point) => sum + point.x, 0) / points.length;
+      const yMean =
+        points.reduce((sum, point) => sum + point.y, 0) / points.length;
+
+      let numerator = 0;
+      let denominator = 0;
+
+      points.forEach(point => {
+        const dx = point.x - xMean;
+        numerator += dx * (point.y - yMean);
+        denominator += dx * dx;
+      });
+
+      if (denominator <= 0) return null;
+      return numerator / denominator;
+    }
+
+    function formatDays(days) {
+      if (!Number.isFinite(days) || days < 0) return "--";
+      if (days > 365) return ">365 days";
+      if (days >= 30) return `${Math.round(days)} days`;
+      if (days >= 10) return `${days.toFixed(0)} days`;
+      return `${days.toFixed(1)} days`;
+    }
+
+    function estimateBatteryLife(readings) {
+      if (!readings.length) {
+        return {
+          ready: false,
+          reason: "No battery history available"
+        };
+      }
+
+      const latest = readings[readings.length - 1];
+      const latestTime = new Date(latest.timestamp).getTime();
+      const latestBattery = Number(latest.battery);
+
+      const lookbackStart = Math.max(
+        FIRMWARE_114_TIME,
+        latestTime - 72 * 60 * 60 * 1000
+      );
+
+      const candidates = readings
+        .filter(item => {
+          const time = new Date(item.timestamp).getTime();
+          return (
+            Number.isFinite(time) &&
+            time >= lookbackStart &&
+            Number.isFinite(Number(item.battery)) &&
+            item.charging !== true
+          );
+        })
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      if (candidates.length < 2) {
+        return {
+          ready: false,
+          reason: "Waiting for stable battery-only history"
+        };
+      }
+
+      // Battery % can jump when USB is connected/removed or the gauge
+      // re-bases. Start a fresh estimation segment after any >5-point jump.
+      let segmentStart = 0;
+
+      for (let index = 1; index < candidates.length; index += 1) {
+        const previous = Number(candidates[index - 1].battery);
+        const current = Number(candidates[index].battery);
+
+        if (Math.abs(current - previous) > 5) {
+          segmentStart = index;
+        }
+      }
+
+      const segment = candidates.slice(segmentStart);
+
+      if (segment.length < 2) {
+        return {
+          ready: false,
+          reason: "Battery gauge recently reset; collecting new history"
+        };
+      }
+
+      const firstTime = new Date(segment[0].timestamp).getTime();
+      const lastTime =
+        new Date(segment[segment.length - 1].timestamp).getTime();
+      const spanHours = (lastTime - firstTime) / (60 * 60 * 1000);
+
+      if (spanHours < 12 || segment.length < 6) {
+        return {
+          ready: false,
+          reason: `Collecting stable data (${spanHours.toFixed(1)}h so far)`
+        };
+      }
+
+      const regressionPoints = segment.map(item => ({
+        x:
+          (new Date(item.timestamp).getTime() - firstTime) /
+          (24 * 60 * 60 * 1000),
+        y: Number(item.battery)
+      }));
+
+      const slopePerDay = linearRegressionSlope(regressionPoints);
+
+      if (!Number.isFinite(slopePerDay)) {
+        return {
+          ready: false,
+          reason: "Unable to calculate battery trend yet"
+        };
+      }
+
+      const drainRate = -slopePerDay;
+
+      if (drainRate <= 0.05) {
+        return {
+          ready: false,
+          reason: "Battery trend is currently too flat to project reliably",
+          spanHours
+        };
+      }
+
+      const daysTo10 = Math.max(0, (latestBattery - 10) / drainRate);
+      const daysTo0 = Math.max(0, latestBattery / drainRate);
+
+      let confidence = "Early";
+      if (spanHours >= 48) confidence = "Good";
+      else if (spanHours >= 24) confidence = "Developing";
+
+      return {
+        ready: true,
+        latestBattery,
+        drainRate,
+        daysTo10,
+        daysTo0,
+        spanHours,
+        sampleCount: segment.length,
+        confidence
+      };
+    }
+
+    function updateBatteryEstimate(readings) {
+      const estimate = estimateBatteryLife(readings);
+      const lifeValue = document.getElementById("battery-life-now");
+      const lifeDetail = document.getElementById("battery-life-detail");
+      const batteryMeta =
+        document.getElementById("battery-estimate-meta");
+
+      if (!estimate.ready) {
+        lifeValue.textContent = "Calculating…";
+        lifeDetail.textContent = estimate.reason;
+        batteryMeta.textContent = `Battery estimate: ${estimate.reason}`;
+        return;
+      }
+
+      lifeValue.textContent = formatDays(estimate.daysTo10);
+      lifeDetail.textContent =
+        `to 10% · ${estimate.drainRate.toFixed(2)}%/day · ` +
+        `${estimate.confidence} estimate`;
+
+      batteryMeta.textContent =
+        `Drain: ${estimate.drainRate.toFixed(2)}%/day · ` +
+        `${formatDays(estimate.daysTo10)} to 10% · ` +
+        `${formatDays(estimate.daysTo0)} to 0% · ` +
+        `${estimate.confidence}`;
+    }
+
     function render() {
       if (!allReadings.length) return;
 
@@ -586,6 +771,7 @@
       updateMetric("battery", latest, visibleReadings, "%", 0);
       updateMetric("temperature", latest, visibleReadings, "°C", 1);
       updateMetric("humidity", latest, visibleReadings, "%", 0);
+      updateBatteryEstimate(allReadings);
 
       drawChart("battery-chart", visibleReadings, "battery");
       drawChart("temperature-chart", visibleReadings, "temperature");

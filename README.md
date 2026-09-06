@@ -284,6 +284,48 @@ This helps separate the earlier abnormal battery/connectivity period from the st
 
 ---
 
+
+## Battery-life estimate
+
+The Home Assistant history dashboard now calculates an estimated remaining
+battery life from the current stable **v1.1.4 battery-only discharge trend**.
+
+The estimate is intentionally kept separate from the E1002 static 800 × 480
+Health Monitor so the physical e-paper page remains simple and uncluttered.
+
+The dashboard shows:
+
+- estimated **days remaining to 10% battery**;
+- current estimated discharge rate in **percentage points per day**;
+- an additional estimate to 0% in the battery-chart metadata;
+- an estimate maturity label: **Early**, **Developing**, or **Good**.
+
+### Estimation rules
+
+The estimator does **not** use the complete historical battery record because
+that history contains the earlier v1.1.5 problem period, USB charging/rebound
+events, and battery-gauge jumps.
+
+Instead it:
+
+1. uses only data after the v1.1.4 rollback marker;
+2. uses at most the most recent 72 hours;
+3. excludes records where `charging=true`;
+4. treats a battery movement of more than 5 percentage points between adjacent
+   readings as a gauge/USB reset and starts a new clean segment;
+5. requires at least 12 hours and at least 6 clean records before projecting;
+6. uses linear regression across the clean segment rather than only comparing
+   the first and last reading;
+7. reports the practical **days-to-10%** estimate as the headline value.
+
+Because the SenseCraft battery gauge reports integer percentages and can be
+affected by USB power conditions, the result should be treated as a trend-based
+operating estimate rather than a precise battery-capacity measurement.
+
+As more stable v1.1.4 data accumulates, the projection should become less
+sensitive to individual 1% gauge changes.
+
+
 # Troubleshooting history
 
 ## Original problem
@@ -554,6 +596,8 @@ Older readings are removed automatically as new readings are captured.
 - Added visible range values.
 - Improved long-range Home Assistant charts.
 - Added v1.1.4 firmware marker to Home Assistant battery history.
+- Added Home Assistant battery-life projection using the clean v1.1.4 discharge trend.
+- Added days-to-10%, percentage-points/day and estimate maturity.
 
 ---
 
