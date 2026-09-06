@@ -14,9 +14,7 @@
       --soft: #f4f4f4;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -45,17 +43,12 @@
       font-size: 26px;
     }
 
-    .subtitle,
-    .updated,
-    .range,
-    .footer {
+    .subtitle, .updated, .range, .change, .footer {
       color: var(--muted);
       font-size: 12px;
     }
 
-    .subtitle {
-      margin-top: 4px;
-    }
+    .subtitle { margin-top: 4px; }
 
     .updated {
       text-align: right;
@@ -140,9 +133,17 @@
       font-weight: 700;
     }
 
+    .chart-meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+
     .chart-value {
       font-size: 21px;
       font-weight: 700;
+      white-space: nowrap;
     }
 
     .chart-wrap {
@@ -169,31 +170,12 @@
     }
 
     @media (max-width: 650px) {
-      #app {
-        padding: 12px;
-      }
-
-      header {
-        display: block;
-      }
-
-      .updated {
-        margin-top: 8px;
-        text-align: left;
-      }
-
-      .cards {
-        grid-template-columns: 1fr;
-      }
-
-      .chart-wrap {
-        height: 165px;
-      }
-
-      .footer {
-        display: block;
-        line-height: 1.6;
-      }
+      #app { padding: 12px; }
+      header { display: block; }
+      .updated { margin-top: 8px; text-align: left; }
+      .cards { grid-template-columns: 1fr; }
+      .chart-wrap { height: 165px; }
+      .footer { display: block; line-height: 1.6; }
     }
   </style>
 </head>
@@ -226,12 +208,10 @@
         <div class="label">Battery</div>
         <div class="value" id="battery-now">--%</div>
       </div>
-
       <div class="card">
         <div class="label">Temperature</div>
         <div class="value" id="temperature-now">--°C</div>
       </div>
-
       <div class="card">
         <div class="label">Humidity</div>
         <div class="value" id="humidity-now">--%</div>
@@ -243,7 +223,10 @@
         <div class="chart-heading">
           <div>
             <div class="chart-title">Battery level</div>
-            <div class="range" id="battery-range">Range: --</div>
+            <div class="chart-meta">
+              <span class="range" id="battery-range">Range: --</span>
+              <span class="change" id="battery-change">Change: --</span>
+            </div>
           </div>
           <div class="chart-value" id="battery-value">--%</div>
         </div>
@@ -254,7 +237,10 @@
         <div class="chart-heading">
           <div>
             <div class="chart-title">Temperature</div>
-            <div class="range" id="temperature-range">Range: --</div>
+            <div class="chart-meta">
+              <span class="range" id="temperature-range">Range: --</span>
+              <span class="change" id="temperature-change">Change: --</span>
+            </div>
           </div>
           <div class="chart-value" id="temperature-value">--°C</div>
         </div>
@@ -265,7 +251,10 @@
         <div class="chart-heading">
           <div>
             <div class="chart-title">Humidity</div>
-            <div class="range" id="humidity-range">Range: --</div>
+            <div class="chart-meta">
+              <span class="range" id="humidity-range">Range: --</span>
+              <span class="change" id="humidity-change">Change: --</span>
+            </div>
           </div>
           <div class="chart-value" id="humidity-value">--%</div>
         </div>
@@ -275,19 +264,26 @@
 
     <div class="footer">
       <span>Source: SenseCraft E1002 sensor API</span>
-      <span id="retention">Data retention: 12 months</span>
+      <span>Dynamic chart scale · firmware marker: v1.1.4</span>
     </div>
   </main>
 
   <script>
     const DATA_URL = "./data/sensor-history.json";
     const SVG_NS = "http://www.w3.org/2000/svg";
+    const FIRMWARE_114_TIME = new Date("2026-09-04T20:25:42Z").getTime();
 
     const ranges = {
       "24h": { hours: 24, title: "Last 24 hours", bucketHours: 1 },
       "7d": { hours: 7 * 24, title: "Last 7 days", bucketHours: 1 },
       "30d": { hours: 30 * 24, title: "Last 30 days", bucketHours: 6 },
       "12m": { hours: 366 * 24, title: "Last 12 months", bucketHours: 24 }
+    };
+
+    const metricConfig = {
+      battery: { minSpan: 10, increment: 5, hardMin: 0, hardMax: 100, decimals: 0 },
+      temperature: { minSpan: 3, increment: 0.5, hardMin: null, hardMax: null, decimals: 1 },
+      humidity: { minSpan: 15, increment: 5, hardMin: 0, hardMax: 100, decimals: 0 }
     };
 
     let activeRange = "7d";
@@ -308,68 +304,70 @@
     }
 
     function formatTick(timestamp, rangeKey) {
-      const options = {
-        timeZone: "Asia/Singapore"
-      };
+      const options = { timeZone: "Asia/Singapore" };
 
       if (rangeKey === "24h") {
         return new Intl.DateTimeFormat("en-SG", {
-          ...options,
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false
+          ...options, hour: "2-digit", minute: "2-digit", hour12: false
         }).format(new Date(timestamp));
       }
 
       if (rangeKey === "7d") {
         return new Intl.DateTimeFormat("en-SG", {
-          ...options,
-          weekday: "short",
-          day: "2-digit"
+          ...options, weekday: "short", day: "2-digit"
         }).format(new Date(timestamp));
       }
 
       if (rangeKey === "30d") {
         return new Intl.DateTimeFormat("en-SG", {
-          ...options,
-          day: "2-digit",
-          month: "short"
+          ...options, day: "2-digit", month: "short"
         }).format(new Date(timestamp));
       }
 
       return new Intl.DateTimeFormat("en-SG", {
-        ...options,
-        month: "short"
+        ...options, month: "short"
       }).format(new Date(timestamp));
     }
 
     function svg(tag, attributes = {}) {
       const element = document.createElementNS(SVG_NS, tag);
-
       Object.entries(attributes).forEach(([key, value]) => {
         element.setAttribute(key, value);
       });
-
       return element;
     }
 
-    function getRange(values, padding) {
-      const min = Math.min(...values);
-      const max = Math.max(...values);
+    function getSmartRange(values, metric) {
+      const cfg = metricConfig[metric];
+      const dataMin = Math.min(...values);
+      const dataMax = Math.max(...values);
+      const dataSpan = Math.max(dataMax - dataMin, 0);
+      const center = (dataMin + dataMax) / 2;
 
-      if (min === max) {
-        return {
-          min: min - padding,
-          max: max + padding
-        };
+      let low;
+      let high;
+
+      if (dataSpan < cfg.minSpan) {
+        low = center - cfg.minSpan / 2;
+        high = center + cfg.minSpan / 2;
+      } else {
+        const pad = Math.max(dataSpan * 0.12, cfg.increment);
+        low = dataMin - pad;
+        high = dataMax + pad;
       }
 
-      const extra = Math.max((max - min) * 0.15, padding);
+      let min = Math.round(low / cfg.increment) * cfg.increment;
+      let max = Math.round(high / cfg.increment) * cfg.increment;
 
-      return {
-        min: min - extra,
-        max: max + extra
-      };
+      while (min > dataMin) min -= cfg.increment;
+      while (max < dataMax) max += cfg.increment;
+
+      if (cfg.hardMin !== null) min = Math.max(cfg.hardMin, min);
+      if (cfg.hardMax !== null) max = Math.min(cfg.hardMax, max);
+
+      if (max <= min) max = min + cfg.increment;
+
+      return { min, max };
     }
 
     function aggregate(readings, metric, bucketHours) {
@@ -386,11 +384,7 @@
       readings.forEach(reading => {
         const time = new Date(reading.timestamp).getTime();
         const key = Math.floor(time / bucketMs) * bucketMs;
-
-        if (!buckets.has(key)) {
-          buckets.set(key, []);
-        }
-
+        if (!buckets.has(key)) buckets.set(key, []);
         buckets.get(key).push(reading);
       });
 
@@ -398,36 +392,33 @@
         .sort((a, b) => a[0] - b[0])
         .map(([time, items]) => {
           const values = items.map(item => Number(item[metric]));
-
           const value = metric === "battery"
             ? values[values.length - 1]
             : values.reduce((total, item) => total + item, 0) / values.length;
 
-          return {
-            timestamp: new Date(time).toISOString(),
-            value
-          };
+          return { timestamp: new Date(time).toISOString(), value };
         });
     }
 
-    function drawChart(containerId, readings, metric, fixedRange = null) {
+    function axisText(value, metric) {
+      return metric === "temperature" ? value.toFixed(1) : Math.round(value);
+    }
+
+    function drawChart(containerId, readings, metric) {
       const container = document.getElementById(containerId);
       container.innerHTML = "";
 
       const config = ranges[activeRange];
       const points = aggregate(readings, metric, config.bucketHours);
+      if (!points.length) return;
 
       const width = 960;
       const height = 190;
-      const p = { top: 12, right: 12, bottom: 28, left: 44 };
+      const p = { top: 14, right: 16, bottom: 28, left: 48 };
       const plotWidth = width - p.left - p.right;
       const plotHeight = height - p.top - p.bottom;
-
       const values = points.map(point => point.value);
-      const yRange = fixedRange || getRange(
-        values,
-        metric === "temperature" ? 0.8 : 4
-      );
+      const yRange = getSmartRange(values, metric);
 
       const firstTime = new Date(points[0].timestamp).getTime();
       const lastTime = new Date(points[points.length - 1].timestamp).getTime();
@@ -443,53 +434,54 @@
         const value = yRange.max - ((yRange.max - yRange.min) / 4) * i;
 
         root.appendChild(svg("line", {
-          x1: p.left,
-          y1: y,
-          x2: width - p.right,
-          y2: y,
-          stroke: "#d8d8d8",
-          "stroke-width": 1
+          x1: p.left, y1: y, x2: width - p.right, y2: y,
+          stroke: "#d8d8d8", "stroke-width": 1
         }));
 
         const label = svg("text", {
-          x: p.left - 6,
-          y: y + 4,
-          "text-anchor": "end",
-          "font-size": 10,
-          fill: "#666"
+          x: p.left - 7, y: y + 4, "text-anchor": "end",
+          "font-size": 10, fill: "#666"
         });
-
-        label.textContent = metric === "temperature"
-          ? value.toFixed(1)
-          : Math.round(value);
-
+        label.textContent = axisText(value, metric);
         root.appendChild(label);
       }
 
       root.appendChild(svg("line", {
-        x1: p.left,
-        y1: p.top,
-        x2: p.left,
-        y2: height - p.bottom,
-        stroke: "#111",
-        "stroke-width": 1
+        x1: p.left, y1: p.top, x2: p.left, y2: height - p.bottom,
+        stroke: "#111", "stroke-width": 1
       }));
 
       root.appendChild(svg("line", {
-        x1: p.left,
-        y1: height - p.bottom,
-        x2: width - p.right,
-        y2: height - p.bottom,
-        stroke: "#111",
-        "stroke-width": 1
+        x1: p.left, y1: height - p.bottom, x2: width - p.right,
+        y2: height - p.bottom, stroke: "#111", "stroke-width": 1
       }));
+
+      if (
+        metric === "battery" &&
+        FIRMWARE_114_TIME >= firstTime &&
+        FIRMWARE_114_TIME <= lastTime
+      ) {
+        const markerX =
+          p.left + ((FIRMWARE_114_TIME - firstTime) / timeSpan) * plotWidth;
+
+        root.appendChild(svg("line", {
+          x1: markerX, y1: p.top, x2: markerX, y2: height - p.bottom,
+          stroke: "#555", "stroke-width": 1.5, "stroke-dasharray": "5 4"
+        }));
+
+        const markerLabel = svg("text", {
+          x: markerX + 5, y: p.top + 11,
+          "font-size": 10, "font-weight": 700, fill: "#444"
+        });
+        markerLabel.textContent = "v1.1.4";
+        root.appendChild(markerLabel);
+      }
 
       const plotted = points.map(point => {
         const time = new Date(point.timestamp).getTime();
         const x = p.left + ((time - firstTime) / timeSpan) * plotWidth;
         const normalized = (point.value - yRange.min) / (yRange.max - yRange.min);
         const y = p.top + plotHeight - normalized * plotHeight;
-
         return { ...point, x, y };
       });
 
@@ -501,54 +493,46 @@
           .join(" ");
 
         root.appendChild(svg("path", {
-          d: path,
-          fill: "none",
-          stroke: "#111",
-          "stroke-width": 2,
-          "stroke-linecap": "round",
-          "stroke-linejoin": "round"
+          d: path, fill: "none", stroke: "#111", "stroke-width": 2,
+          "stroke-linecap": "round", "stroke-linejoin": "round"
         }));
       }
 
-      const markerStep = Math.max(1, Math.floor(plotted.length / 70));
-
-      plotted.forEach((point, index) => {
-        if (index % markerStep !== 0 && index !== plotted.length - 1) {
-          return;
-        }
-
+      const showDots = activeRange === "24h" || activeRange === "7d";
+      if (showDots) {
+        const markerStep = Math.max(1, Math.floor(plotted.length / 60));
+        plotted.forEach((point, index) => {
+          if (index % markerStep !== 0 && index !== plotted.length - 1) return;
+          root.appendChild(svg("circle", {
+            cx: point.x, cy: point.y,
+            r: index === plotted.length - 1 ? 2.8 : 1.6,
+            fill: "#111"
+          }));
+        });
+      } else if (plotted.length) {
+        const last = plotted[plotted.length - 1];
         root.appendChild(svg("circle", {
-          cx: point.x,
-          cy: point.y,
-          r: 1.7,
-          fill: "#111"
+          cx: last.x, cy: last.y, r: 2.8, fill: "#111"
         }));
-      });
+      }
 
       const tickCount = 6;
-
       for (let i = 0; i <= tickCount; i += 1) {
         const fraction = i / tickCount;
-        const time = firstTime + (timeSpan * fraction);
-        const x = p.left + (plotWidth * fraction);
+        const time = firstTime + timeSpan * fraction;
+        const x = p.left + plotWidth * fraction;
 
         root.appendChild(svg("line", {
-          x1: x,
-          y1: height - p.bottom,
-          x2: x,
-          y2: height - p.bottom + 4,
-          stroke: "#111",
-          "stroke-width": 1
+          x1: x, y1: height - p.bottom,
+          x2: x, y2: height - p.bottom + 4,
+          stroke: "#111", "stroke-width": 1
         }));
 
         const label = svg("text", {
-          x,
-          y: height - 8,
+          x, y: height - 8,
           "text-anchor": i === 0 ? "start" : i === tickCount ? "end" : "middle",
-          "font-size": 10,
-          fill: "#555"
+          "font-size": 10, fill: "#555"
         });
-
         label.textContent = formatTick(new Date(time).toISOString(), activeRange);
         root.appendChild(label);
       }
@@ -556,34 +540,45 @@
       container.appendChild(root);
     }
 
+    function formatDelta(value, unit, decimals) {
+      const rounded = Number(value).toFixed(decimals);
+      const numeric = Number(rounded);
+      const prefix = numeric > 0 ? "+" : numeric < 0 ? "−" : "";
+      return `${prefix}${Math.abs(numeric).toFixed(decimals)}${unit}`;
+    }
+
     function updateMetric(metric, latest, visibleReadings, unit, decimals) {
       const values = visibleReadings.map(item => Number(item[metric]));
-      const latestText = `${Number(latest[metric]).toFixed(decimals)}${unit}`;
+      const latestValue = Number(latest[metric]);
+      const firstValue = Number(visibleReadings[0][metric]);
+      const latestText = `${latestValue.toFixed(decimals)}${unit}`;
       const min = Math.min(...values).toFixed(decimals);
       const max = Math.max(...values).toFixed(decimals);
+      const delta = latestValue - firstValue;
 
       document.getElementById(`${metric}-now`).textContent = latestText;
       document.getElementById(`${metric}-value`).textContent = latestText;
       document.getElementById(`${metric}-range`).textContent =
-        `${ranges[activeRange].title} range: ${min}–${max}${unit}`;
+        `Range: ${min}–${max}${unit}`;
+      document.getElementById(`${metric}-change`).textContent =
+        `Change: ${formatDelta(delta, unit, decimals)}`;
     }
 
     function render() {
-      if (!allReadings.length) {
-        return;
-      }
+      if (!allReadings.length) return;
 
       const latest = allReadings[allReadings.length - 1];
-      const cutoff =
-        new Date(latest.timestamp).getTime() -
-        (ranges[activeRange].hours * 60 * 60 * 1000);
+      const latestTime = new Date(latest.timestamp).getTime();
+      const cutoff = latestTime - ranges[activeRange].hours * 60 * 60 * 1000;
 
       const visibleReadings = allReadings.filter(item =>
         new Date(item.timestamp).getTime() >= cutoff
       );
 
+      if (!visibleReadings.length) return;
+
       document.getElementById("subtitle").textContent =
-        `${ranges[activeRange].title} · hourly E1002 sensor history`;
+        `${ranges[activeRange].title} · dynamic Y-axis · hourly E1002 sensor history`;
 
       document.getElementById("updated").textContent =
         formatDateTime(updatedAt || latest.timestamp);
@@ -592,23 +587,12 @@
       updateMetric("temperature", latest, visibleReadings, "°C", 1);
       updateMetric("humidity", latest, visibleReadings, "%", 0);
 
-      drawChart("battery-chart", visibleReadings, "battery", {
-        min: 0,
-        max: 100
-      });
-
+      drawChart("battery-chart", visibleReadings, "battery");
       drawChart("temperature-chart", visibleReadings, "temperature");
-
-      drawChart("humidity-chart", visibleReadings, "humidity", {
-        min: 0,
-        max: 100
-      });
+      drawChart("humidity-chart", visibleReadings, "humidity");
 
       document.querySelectorAll(".periods button").forEach(button => {
-        button.classList.toggle(
-          "active",
-          button.dataset.range === activeRange
-        );
+        button.classList.toggle("active", button.dataset.range === activeRange);
       });
     }
 
@@ -642,10 +626,7 @@
         render();
       } catch (error) {
         document.getElementById("app").innerHTML =
-          `<div class="error">
-            Unable to load E1002 sensor history.
-          </div>`;
-
+          `<div class="error">Unable to load E1002 sensor history.</div>`;
         console.error(error);
       }
     }
@@ -658,7 +639,6 @@
     });
 
     loadData();
-
     setInterval(loadData, 5 * 60 * 1000);
   </script>
 </body>

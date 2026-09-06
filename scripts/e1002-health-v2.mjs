@@ -4,7 +4,6 @@ import path from "path";
 const DEVICE_ID = "20230256";
 const RETENTION_DAYS = 366;
 const MINIMUM_SPACING_MINUTES = 50;
-
 const DEVICE_MAC = "9C:13:9E:AB:F6:94";
 
 const IOT_ENDPOINT =
@@ -32,7 +31,6 @@ function statusLabel(rawStatus) {
   if (rawStatus === 3) return "Sleep";
   if (rawStatus === 0) return "Offline";
 
-  // Keep unconfirmed status codes visible rather than guessing.
   return Number.isFinite(rawStatus)
     ? `Unknown (${rawStatus})`
     : "Status unavailable";
@@ -40,21 +38,13 @@ function statusLabel(rawStatus) {
 
 function normalizeLastSeen(value) {
   const numeric = Number(value);
-
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
 
   const milliseconds =
-    numeric < 100000000000
-      ? numeric * 1000
-      : numeric;
+    numeric < 100000000000 ? numeric * 1000 : numeric;
 
   const date = new Date(milliseconds);
-
-  return Number.isFinite(date.getTime())
-    ? date.toISOString()
-    : null;
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function findTargetDevice(payload) {
@@ -70,16 +60,12 @@ function findTargetDevice(payload) {
         result?.data ||
         [];
 
-  if (!Array.isArray(devices)) {
-    return null;
-  }
+  if (!Array.isArray(devices)) return null;
 
   const normalizedMac = DEVICE_MAC.toLowerCase();
 
   return (
-    devices.find(
-      item => String(item?.id) === String(DEVICE_ID)
-    ) ||
+    devices.find(item => String(item?.id) === String(DEVICE_ID)) ||
     devices.find(
       item =>
         String(
@@ -123,45 +109,6 @@ async function fetchWithRetry(url, options, attempts = 3) {
   throw lastError;
 }
 
-const singaporeDayFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Singapore",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit"
-});
-
-function singaporeDayKey(timestamp) {
-  const parts = singaporeDayFormatter.formatToParts(new Date(timestamp));
-  const values = {};
-
-  for (const part of parts) {
-    if (part.type !== "literal") {
-      values[part.type] = part.value;
-    }
-  }
-
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function singaporeMinutesSinceMidnight(timestamp) {
-  const parts = new Intl.DateTimeFormat("en-SG", {
-    timeZone: "Asia/Singapore",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(new Date(timestamp));
-
-  const values = {};
-
-  for (const part of parts) {
-    if (part.type !== "literal") {
-      values[part.type] = Number(part.value);
-    }
-  }
-
-  return values.hour * 60 + values.minute;
-}
-
 function formatSingaporeTimestamp(timestamp) {
   return new Intl.DateTimeFormat("en-SG", {
     timeZone: "Asia/Singapore",
@@ -174,19 +121,78 @@ function formatSingaporeTimestamp(timestamp) {
   }).format(new Date(timestamp));
 }
 
-function getRange(values, padding) {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-
-  if (min === max) {
-    return { min: min - padding, max: max + padding };
-  }
-
-  const extra = Math.max((max - min) * 0.18, padding);
-  return { min: min - extra, max: max + extra };
+function formatSingaporeHour(timestamp) {
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: "Asia/Singapore",
+    hour: "2-digit",
+    hour12: false
+  }).format(new Date(timestamp));
 }
 
-function buildChartSvg(readings, metric, fixedRange = null) {
+const metricConfig = {
+  battery: {
+    minSpan: 10,
+    increment: 5,
+    hardMin: 0,
+    hardMax: 100,
+    decimals: 0
+  },
+  temperature: {
+    minSpan: 3,
+    increment: 0.5,
+    hardMin: null,
+    hardMax: null,
+    decimals: 1
+  },
+  humidity: {
+    minSpan: 15,
+    increment: 5,
+    hardMin: 0,
+    hardMax: 100,
+    decimals: 0
+  }
+};
+
+function getSmartRange(values, metric) {
+  const cfg = metricConfig[metric];
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const dataSpan = Math.max(dataMax - dataMin, 0);
+  const center = (dataMin + dataMax) / 2;
+
+  let low;
+  let high;
+
+  if (dataSpan < cfg.minSpan) {
+    low = center - cfg.minSpan / 2;
+    high = center + cfg.minSpan / 2;
+  } else {
+    const pad = Math.max(dataSpan * 0.12, cfg.increment);
+    low = dataMin - pad;
+    high = dataMax + pad;
+  }
+
+  let min = Math.round(low / cfg.increment) * cfg.increment;
+  let max = Math.round(high / cfg.increment) * cfg.increment;
+
+  while (min > dataMin) min -= cfg.increment;
+  while (max < dataMax) max += cfg.increment;
+
+  if (cfg.hardMin !== null) min = Math.max(cfg.hardMin, min);
+  if (cfg.hardMax !== null) max = Math.min(cfg.hardMax, max);
+
+  if (max <= min) max = min + cfg.increment;
+
+  return { min, max };
+}
+
+function axisText(value, metric) {
+  return metric === "temperature"
+    ? value.toFixed(1)
+    : Math.round(value);
+}
+
+function buildChartSvg(readings, metric) {
   const width = 570;
   const height = 86;
   const p = { top: 8, right: 8, bottom: 20, left: 31 };
@@ -194,9 +200,12 @@ function buildChartSvg(readings, metric, fixedRange = null) {
   const plotH = height - p.top - p.bottom;
 
   const values = readings.map(item => Number(item[metric]));
-  const yRange =
-    fixedRange ||
-    getRange(values, metric === "battery" ? 4 : 0.8);
+  const yRange = getSmartRange(values, metric);
+
+  const endTime =
+    new Date(readings[readings.length - 1].timestamp).getTime();
+  const startTime = endTime - 24 * 60 * 60 * 1000;
+  const timeSpan = 24 * 60 * 60 * 1000;
 
   const grid = [];
   const labels = [];
@@ -214,24 +223,21 @@ function buildChartSvg(readings, metric, fixedRange = null) {
 
     labels.push(
       `<text x="${p.left - 4}" y="${(y + 3).toFixed(1)}" ` +
-      `text-anchor="end" font-size="8" fill="#666">${
-        metric === "battery" ? Math.round(value) : value.toFixed(1)
-      }</text>`
+      `text-anchor="end" font-size="8" fill="#666">` +
+      `${axisText(value, metric)}</text>`
     );
   }
 
   const points = readings.map(reading => {
+    const time = new Date(reading.timestamp).getTime();
     const x =
-      p.left +
-      (singaporeMinutesSinceMidnight(reading.timestamp) / 1440) *
-        plotW;
+      p.left + ((time - startTime) / timeSpan) * plotW;
 
     const normalized =
       (Number(reading[metric]) - yRange.min) /
       (yRange.max - yRange.min);
 
     const y = p.top + plotH - normalized * plotH;
-
     return { x, y };
   });
 
@@ -245,18 +251,19 @@ function buildChartSvg(readings, metric, fixedRange = null) {
 
   const dots = points
     .map(
-      point =>
+      (point, index) =>
         `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" ` +
-        `r="2" fill="#111"/>`
+        `r="${index === points.length - 1 ? 2.7 : 1.7}" fill="#111"/>`
     )
     .join("");
 
-  const xTicks = [0, 4, 8, 12, 16, 20, 24]
-    .map(hour => {
-      const x = p.left + ((hour * 60) / 1440) * plotW;
-      const anchor = hour === 24 ? "end" : "middle";
-      const label =
-        hour === 24 ? "24" : String(hour).padStart(2, "0");
+  const xTicks = Array.from({ length: 7 }, (_, i) => i)
+    .map(i => {
+      const fraction = i / 6;
+      const time = startTime + timeSpan * fraction;
+      const x = p.left + plotW * fraction;
+      const anchor = i === 0 ? "start" : i === 6 ? "end" : "middle";
+      const label = formatSingaporeHour(new Date(time).toISOString());
 
       return `
         <line x1="${x.toFixed(1)}" y1="${height - p.bottom}"
@@ -285,6 +292,14 @@ function buildChartSvg(readings, metric, fixedRange = null) {
   `;
 }
 
+function formatDelta(value, unit, decimals) {
+  const rounded = Number(value).toFixed(decimals);
+  const numeric = Number(rounded);
+  const prefix = numeric > 0 ? "+" : numeric < 0 ? "−" : "";
+
+  return `${prefix}${Math.abs(numeric).toFixed(decimals)}${unit}`;
+}
+
 function generateStaticDashboard(history) {
   const allReadings = (history.readings || [])
     .filter(
@@ -306,17 +321,15 @@ function generateStaticDashboard(history) {
     );
   }
 
-  const todayKey = singaporeDayKey(new Date().toISOString());
+  const latest = allReadings[allReadings.length - 1];
+  const latestTime = new Date(latest.timestamp).getTime();
+  const cutoff = latestTime - 24 * 60 * 60 * 1000;
 
   let readings = allReadings.filter(
-    item => singaporeDayKey(item.timestamp) === todayKey
+    item => new Date(item.timestamp).getTime() >= cutoff
   );
 
-  if (!readings.length) {
-    readings = [allReadings[allReadings.length - 1]];
-  }
-
-  const latest = readings[readings.length - 1];
+  if (!readings.length) readings = [latest];
 
   const batteryValues = readings.map(item => Number(item.battery));
   const temperatureValues = readings.map(item => Number(item.temperature));
@@ -333,12 +346,22 @@ function generateStaticDashboard(history) {
   const humidityMin = Math.min(...humidityValues).toFixed(0);
   const humidityMax = Math.max(...humidityValues).toFixed(0);
 
+  const first = readings[0];
+  const batteryDelta = formatDelta(
+    Number(latest.battery) - Number(first.battery), "%", 0
+  );
+  const temperatureDelta = formatDelta(
+    Number(latest.temperature) - Number(first.temperature), "°C", 1
+  );
+  const humidityDelta = formatDelta(
+    Number(latest.humidity) - Number(first.humidity), "%", 0
+  );
+
   const updated = formatSingaporeTimestamp(
     history.updatedAt || latest.timestamp
   );
 
-  const latestStatus =
-    latest.status || "Status unavailable";
+  const latestStatus = latest.status || "Status unavailable";
 
   const latestLastSeen =
     latest.lastSeen
@@ -399,7 +422,7 @@ function generateStaticDashboard(history) {
       font-size: 22px;
     }
 
-    .subtitle, .updated, .footer, .range {
+    .subtitle, .updated, .footer, .range, .change {
       color: var(--muted);
       font-size: 10px;
     }
@@ -452,7 +475,7 @@ function generateStaticDashboard(history) {
 
     .chart-box {
       display: grid;
-      grid-template-columns: 145px 1fr;
+      grid-template-columns: 150px 1fr;
       border: 1px solid var(--ink);
       min-height: 0;
       padding: 5px 8px;
@@ -469,10 +492,12 @@ function generateStaticDashboard(history) {
     }
 
     .chart-value {
-      margin-top: 5px;
-      font-size: 25px;
+      margin-top: 3px;
+      font-size: 24px;
       font-weight: 700;
     }
+
+    .change { margin-top: 2px; }
 
     .chart-wrap {
       height: 86px;
@@ -497,7 +522,7 @@ function generateStaticDashboard(history) {
   <!--
     AUTO-GENERATED BY GITHUB ACTIONS.
     DO NOT EDIT THIS FILE MANUALLY.
-    E1002 Health Monitor v2 - fully static page.
+    E1002 Health Monitor v3 - rolling 24h + dynamic chart scales.
   -->
 
   <main id="app">
@@ -505,7 +530,7 @@ function generateStaticDashboard(history) {
       <div>
         <h1>E1002 Health Monitor</h1>
         <div class="subtitle">
-          Battery, temperature and humidity · today's hourly trend
+          Battery, temperature and humidity · rolling last 24 hours
         </div>
       </div>
 
@@ -520,12 +545,10 @@ function generateStaticDashboard(history) {
         <div class="label">Battery</div>
         <div class="value">${battery}%</div>
       </div>
-
       <div class="card">
         <div class="label">Temperature</div>
         <div class="value">${temperature}°C</div>
       </div>
-
       <div class="card">
         <div class="label">Humidity</div>
         <div class="value">${humidity}%</div>
@@ -537,12 +560,11 @@ function generateStaticDashboard(history) {
         <div class="chart-info">
           <div class="chart-title">Battery level</div>
           <div class="chart-value">${battery}%</div>
-          <div class="range">
-            Today range: ${batteryMin}–${batteryMax}%
-          </div>
+          <div class="change">24h Δ: ${batteryDelta}</div>
+          <div class="range">Range: ${batteryMin}–${batteryMax}%</div>
         </div>
         <div class="chart-wrap">
-          ${buildChartSvg(readings, "battery", { min: 0, max: 100 })}
+          ${buildChartSvg(readings, "battery")}
         </div>
       </article>
 
@@ -550,9 +572,8 @@ function generateStaticDashboard(history) {
         <div class="chart-info">
           <div class="chart-title">Temperature</div>
           <div class="chart-value">${temperature}°C</div>
-          <div class="range">
-            Today range: ${temperatureMin}–${temperatureMax}°C
-          </div>
+          <div class="change">24h Δ: ${temperatureDelta}</div>
+          <div class="range">Range: ${temperatureMin}–${temperatureMax}°C</div>
         </div>
         <div class="chart-wrap">
           ${buildChartSvg(readings, "temperature")}
@@ -563,19 +584,18 @@ function generateStaticDashboard(history) {
         <div class="chart-info">
           <div class="chart-title">Humidity</div>
           <div class="chart-value">${humidity}%</div>
-          <div class="range">
-            Today range: ${humidityMin}–${humidityMax}%
-          </div>
+          <div class="change">24h Δ: ${humidityDelta}</div>
+          <div class="range">Range: ${humidityMin}–${humidityMax}%</div>
         </div>
         <div class="chart-wrap">
-          ${buildChartSvg(readings, "humidity", { min: 0, max: 100 })}
+          ${buildChartSvg(readings, "humidity")}
         </div>
       </article>
     </section>
 
     <div class="footer">
       <span>Status: ${latestStatus} · Last seen: ${latestLastSeen}</span>
-      <span>Static v2 · data retained: ${RETENTION_DAYS} days</span>
+      <span>Static v3 · rolling 24h · retained: ${RETENTION_DAYS} days</span>
     </div>
   </main>
 </body>
@@ -706,9 +726,10 @@ async function main() {
       ? Math.max(
           0,
           Math.round(
-            (new Date(pollTimestamp).getTime() -
-              new Date(lastSeen).getTime()) /
-              60000
+            (
+              new Date(pollTimestamp).getTime() -
+              new Date(lastSeen).getTime()
+            ) / 60000
           )
         )
       : null;
@@ -733,13 +754,9 @@ async function main() {
     humidity: Number(result?.sensor?.humidity),
 
     status: statusLabel(rawStatus),
-
     rawStatus,
-
     statusSource,
-
     lastSeen,
-
     lastSeenAgeMinutes,
 
     refreshIntervalMinutes:
@@ -827,9 +844,7 @@ async function main() {
 
   const csvContent = [
     csvHeader.map(csvEscape).join(","),
-    ...csvRows.map(row =>
-      row.map(csvEscape).join(",")
-    )
+    ...csvRows.map(row => row.map(csvEscape).join(","))
   ].join("\n") + "\n";
 
   fs.writeFileSync(CSV_FILE, csvContent, "utf8");
@@ -842,16 +857,19 @@ async function main() {
 
   console.log("Saved E1002 reading:", reading);
   console.log(
-    `SenseCraft status: ${reading.status} (raw=${reading.rawStatus ?? "n/a"}, source=${reading.statusSource}).`
+    `SenseCraft status: ${reading.status} ` +
+    `(raw=${reading.rawStatus ?? "n/a"}, source=${reading.statusSource}).`
   );
   console.log(
-    `SenseCraft last seen: ${reading.lastSeen ?? "n/a"} (${reading.lastSeenAgeMinutes ?? "n/a"} min ago).`
+    `SenseCraft last seen: ${reading.lastSeen ?? "n/a"} ` +
+    `(${reading.lastSeenAgeMinutes ?? "n/a"} min ago).`
   );
   console.log(
-    `E1002 reports refresh interval: ${reading.refreshIntervalMinutes} minutes.`
+    `E1002 reports refresh interval: ` +
+    `${reading.refreshIntervalMinutes} minutes.`
   );
   console.log(
-    `Generated fully static dashboard: ${DASHBOARD_FILE}`
+    `Generated rolling-24h static dashboard: ${DASHBOARD_FILE}`
   );
   console.log(
     `Retaining ${RETENTION_DAYS} days of history.`
