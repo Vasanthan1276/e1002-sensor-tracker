@@ -1,50 +1,144 @@
 # E1002 Sensor Tracker
 
-A monitoring and troubleshooting project for a **Seeed Studio reTerminal E1002** running **SenseCraft HMI**.
+A monitoring, history, dashboard, and troubleshooting project for a **Seeed Studio reTerminal E1002** running **SenseCraft HMI**.
 
-The project records E1002 battery, temperature, humidity, sleep/online status and cloud contact information, stores the history in GitHub, and produces two dashboards:
+The repository records battery, temperature, humidity, sleep/online status, and SenseCraft cloud-contact information. It retains the history in GitHub and serves:
 
-- a fully static **800 × 480 E1002 Health Monitor** for the e-paper display;
-- a larger **Home Assistant sensor-history dashboard** with selectable time ranges.
+1. a direct **800 × 480 `health.bmp`** for the physical E1002;
+2. a generated static `index.html` used as the deterministic BMP render source and browser preview;
+3. a richer `homeassistant.html` history dashboard.
 
-The project was also used to troubleshoot an intermittent E1002 battery-drain and wake/sleep connectivity problem.
+The project was also used to diagnose and resolve the earlier E1002 battery-drain / wake-sleep problem.
 
 ---
 
-## Current status
+# Current status
 
 **Status: stable / battery-drain issue resolved**
 
-The E1002 is currently running reliably with:
+Current working device configuration:
 
-- SenseCraft HMI firmware **v1.1.4**
-- Deep sleep enabled
-- Refresh interval: **60 minutes**
-- Wi-Fi: **2.4 GHz**
-- Fixed nearby Wi-Fi node/access point
-- Automatic hourly wake → refresh → sleep cycle
-- Normal battery consumption
+```text
+Firmware:       SenseCraft HMI v1.1.4
+Deep sleep:     Enabled
+Refresh:        60 minutes
+Wi-Fi:          2.4 GHz
+Access point:   Fixed nearby node
+Result:         Stable
+```
 
-During troubleshooting, firmware **v1.1.5** showed intermittent wake/sleep and connection problems together with excessive battery consumption. Rolling the device back to **v1.1.4** restored normal operation.
+SenseCraft HMI **v1.1.5** was the leading cause of the earlier intermittent wake/sleep, connectivity, and excessive battery-drain behaviour on this E1002.
 
-The current recommendation is therefore to **remain on v1.1.4** until a later SenseCraft HMI release is verified to resolve the regression.
+Rolling back to **v1.1.4** restored:
 
----
+- automatic wake cycles;
+- scheduled display refresh;
+- SenseCraft telemetry reporting;
+- return to deep sleep;
+- normal battery consumption.
 
-## What this repository does
+Current recommendation:
 
-The repository performs four main jobs:
-
-1. Polls the SenseCraft API for the E1002's latest telemetry.
-2. Records approximately one year of history.
-3. Generates a static 800 × 480 Health Monitor for the E1002.
-4. Provides an interactive browser/Home Assistant history view.
-
-The collection workflow is intentionally independent of the E1002's own hourly wake cycle. GitHub checks several times per hour, while the script normally saves only one record approximately every hour.
+> Remain on SenseCraft HMI v1.1.4 until a later release is specifically verified to resolve the regression.
 
 ---
 
-## Repository structure
+# Production URLs
+
+## Physical E1002 — direct BMP
+
+Use this URL in **SenseCraft HMI**:
+
+```text
+https://vasanthan1276.github.io/e1002-sensor-tracker/health.bmp
+```
+
+Production resolution:
+
+```text
+800 × 480
+```
+
+The physical E1002 should use `health.bmp`.
+
+## Browser / diagnostic E1002 preview
+
+```text
+https://vasanthan1276.github.io/e1002-sensor-tracker/
+```
+
+or:
+
+```text
+https://vasanthan1276.github.io/e1002-sensor-tracker/index.html
+```
+
+`index.html` is the generated source that GitHub Actions renders into `health.bmp`.
+
+## Home Assistant
+
+```text
+https://vasanthan1276.github.io/e1002-sensor-tracker/homeassistant.html
+```
+
+The Home Assistant page remains HTML because it is intentionally interactive and supports selectable history periods.
+
+---
+
+# BMP-first E1002 architecture
+
+From September 2026 onward, physical E1002 pages follow the common project standard:
+
+```text
+SenseCraft APIs
+      ↓
+GitHub Actions
+      ↓
+Retained sensor history
+      ↓
+Generated static index.html
+      ↓
+Headless Chromium at 800×480
+      ↓
+health.bmp
+      ↓
+SenseCraft HMI
+      ↓
+reTerminal E1002
+```
+
+The physical E1002 does **not** need to:
+
+- call the SenseCraft API to build the Health Monitor;
+- process the retained history;
+- calculate chart ranges;
+- generate SVG trend charts;
+- execute JavaScript;
+- wait for dynamic page rendering.
+
+All of that work happens in GitHub.
+
+---
+
+# What this repository does
+
+The repository performs five main jobs:
+
+1. polls SenseCraft for the E1002's latest telemetry;
+2. records approximately one year of history;
+3. tracks device status and last cloud contact;
+4. generates the static 800×480 Health Monitor source;
+5. renders the finished Health Monitor to `health.bmp`.
+
+The GitHub capture workflow is independent of the E1002's own wake cycle.
+
+GitHub checks several times per hour, while the capture script normally saves approximately one reading per hour.
+
+---
+
+# Repository structure
+
+Important files:
 
 ```text
 e1002-sensor-tracker/
@@ -58,52 +152,54 @@ e1002-sensor-tracker/
 │   └── e1002-status-history.csv
 │
 ├── scripts/
-│   └── e1002-health-v2.mjs
+│   ├── e1002-health-v2.mjs
+│   ├── render-e1002-bmp.mjs
+│   └── png_to_bmp.py
 │
-├── homeassistant.html
+├── health.bmp
 ├── index.html
+├── homeassistant.html
 └── README.md
 ```
 
-### `scripts/e1002-health-v2.mjs`
+---
 
-Main capture and dashboard-generation script.
+# Main capture and dashboard generator
+
+Main script:
+
+```text
+scripts/e1002-health-v2.mjs
+```
 
 It:
 
 - calls the SenseCraft telemetry API;
-- calls the SenseCraft device-list API for device status and `lastSeen`;
+- calls the SenseCraft device-list API;
 - normalizes device status;
-- records battery, charging state, temperature and humidity;
-- stores device/cloud timing information;
-- retains approximately 366 days of data;
-- regenerates the static E1002 dashboard in `index.html`.
+- records battery percentage;
+- records charging state;
+- records temperature;
+- records humidity;
+- records device/cloud timing information;
+- records `lastSeen`;
+- records `lastSeenAgeMinutes`;
+- retains approximately 366 days of history;
+- regenerates the static E1002 Health Monitor in `index.html`.
 
-Although the filename still contains `v2`, the current static dashboard output is **Static v3** with the improved chart system described below.
+Although the filename contains `v2`, the current visual output is the newer **Static v3** Health Monitor.
 
-### `index.html`
+Do not normally edit generated `index.html` directly.
 
-The E1002-facing Health Monitor.
+Make persistent E1002 dashboard changes in:
 
-This file is **auto-generated by the GitHub Action**. It should not normally be edited manually.
-
-### `homeassistant.html`
-
-Interactive history page intended for Home Assistant or a normal browser.
-
-It reads `data/sensor-history.json` directly and provides selectable history periods.
-
-### `data/sensor-history.json`
-
-Structured sensor-history file used by the dashboards.
-
-### `data/e1002-status-history.csv`
-
-CSV version of the retained history for troubleshooting and offline analysis.
+```text
+scripts/e1002-health-v2.mjs
+```
 
 ---
 
-## GitHub Actions capture workflow
+# GitHub Actions capture workflow
 
 Workflow:
 
@@ -123,25 +219,77 @@ Scheduled opportunities:
 7,22,37,52 * * * *
 ```
 
-GitHub therefore starts the workflow four times per hour for redundancy.
+This gives four GitHub Actions opportunities each hour.
 
-The script uses a **minimum spacing of 50 minutes** for scheduled runs, so under normal operation only approximately one reading per hour is saved.
+The existing capture script applies:
 
-A manual `workflow_dispatch` run is also available for testing.
+```text
+MINIMUM_SPACING_MINUTES = 50
+```
 
-The workflow commits updates to:
+to normal scheduled runs, so retained history remains approximately hourly.
+
+Manual `workflow_dispatch` runs remain available for testing.
+
+---
+
+# BMP generation flow
+
+After the sensor/history generator creates `index.html`, the workflow runs:
+
+```text
+scripts/render-e1002-bmp.mjs
+```
+
+The renderer:
+
+1. starts a temporary local static server inside GitHub Actions;
+2. opens `index.html` in headless Chromium;
+3. uses an exact 800×480 browser viewport;
+4. forces the document canvas to 800×480 with hidden overflow;
+5. waits for fonts to finish loading;
+6. captures an explicit 800×480 image clip;
+7. converts the intermediate PNG to BMP;
+8. writes:
+
+```text
+health.bmp
+```
+
+The conversion script:
+
+```text
+scripts/png_to_bmp.py
+```
+
+checks that the source image is exactly:
+
+```text
+800 × 480
+```
+
+before saving the final RGB BMP.
+
+---
+
+# Files committed by the capture workflow
+
+Normal generated/updated files include:
 
 ```text
 data/sensor-history.json
 data/e1002-status-history.csv
 index.html
+health.bmp
 ```
+
+`homeassistant.html` is maintained separately because it is not regenerated by every sensor capture run.
 
 ---
 
-## SenseCraft API information captured
+# SenseCraft API information captured
 
-The project currently records:
+The project records:
 
 | Field | Purpose |
 |---|---|
@@ -150,17 +298,19 @@ The project currently records:
 | `status` | Normalized E1002 state |
 | `rawStatus` | Raw SenseCraft status code |
 | `statusSource` | API source used for status |
-| `lastSeen` | Last SenseCraft cloud contact from the device |
+| `lastSeen` | Last SenseCraft cloud contact |
 | `lastSeenAgeMinutes` | Age of the last device contact |
-| `battery` | Battery percentage reported by SenseCraft |
+| `battery` | Battery percentage |
 | `charging` | Charging state |
-| `temperature` | E1002 temperature reading |
-| `humidity` | E1002 humidity reading |
+| `temperature` | E1002 temperature |
+| `humidity` | E1002 humidity |
 | `refreshIntervalMinutes` | Configured E1002 refresh interval |
 | `deepSleepDisabled` | SenseCraft sleep setting |
 | `targetDeepSleepEnabled` | Target deep-sleep state |
 
-### Confirmed SenseCraft status mapping
+---
+
+# Confirmed SenseCraft status mapping
 
 For this E1002:
 
@@ -170,183 +320,21 @@ raw 3 = Sleep
 raw 0 = Offline
 ```
 
-Other raw values are intentionally left visible as `Unknown (N)` instead of being guessed.
-
----
-
-# E1002 Health Monitor — Static v3
-
-The latest chart redesign improves the usefulness of the 800 × 480 e-paper page while keeping it fully static and lightweight.
-
-## Rolling 24-hour display
-
-Previously, the E1002 page plotted the current calendar day from:
+Other values remain visible as:
 
 ```text
-00:00 → 24:00
+Unknown (N)
 ```
 
-This left a large empty section of the chart early in the day.
-
-The current version instead displays a **rolling last 24 hours**, so the entire chart width always represents useful recorded history.
-
-Example at 08:00:
-
-```text
-08 → 12 → 16 → 20 → 00 → 04 → 08
-```
+rather than being guessed.
 
 ---
 
-## Intelligent Y-axis scaling
+# Important status finding
 
-Battery and humidity previously used a fixed `0–100` Y-axis.
+SenseCraft's visible `Online` label is not by itself proof that the E1002 has recently contacted the cloud.
 
-That made small but meaningful changes appear almost flat.
-
-The current dashboard automatically selects a useful scale around the visible readings.
-
-Current minimum display spans:
-
-| Metric | Minimum chart span |
-|---|---:|
-| Battery | 10 percentage points |
-| Temperature | 3 °C |
-| Humidity | 15 percentage points |
-
-Examples:
-
-```text
-Battery 80–82%     → chart approximately 75–85%
-Humidity 60–64%   → chart approximately 55–70%
-Temperature       → automatically rounded 0.5 °C scale
-```
-
-Battery and humidity remain bounded to their physical `0–100%` limits.
-
----
-
-## E1002 chart information
-
-Each E1002 metric panel now shows:
-
-- latest value;
-- **24-hour change (Δ)**;
-- 24-hour minimum and maximum;
-- dynamically scaled trend chart;
-- rolling 24-hour time axis;
-- emphasized latest point.
-
-Example:
-
-```text
-Battery level
-81%
-24h Δ: −1%
-Range: 80–82%
-```
-
-The design remains monochrome and e-paper friendly.
-
----
-
-# Home Assistant dashboard improvements
-
-`homeassistant.html` retains the selectable periods:
-
-- Last 24 hours
-- Last 7 days
-- Last 30 days
-- Last 12 months
-
-For every selected period it now shows:
-
-- latest value;
-- range for the selected period;
-- change from the first visible reading to the latest reading;
-- intelligent Y-axis scaling.
-
-The 30-day and 12-month views use fewer point markers so longer histories remain readable.
-
----
-
-## Firmware v1.1.4 marker
-
-The Home Assistant **battery chart** includes a vertical marker for the firmware rollback to:
-
-```text
-SenseCraft HMI v1.1.4
-```
-
-when that date falls inside the selected chart period.
-
-This helps separate the earlier abnormal battery/connectivity period from the stable post-fix data.
-
----
-
-
-## Battery-life estimate
-
-The Home Assistant history dashboard now calculates an estimated remaining
-battery life from the current stable **v1.1.4 battery-only discharge trend**.
-
-The estimate is intentionally kept separate from the E1002 static 800 × 480
-Health Monitor so the physical e-paper page remains simple and uncluttered.
-
-The dashboard shows:
-
-- estimated **days remaining to 10% battery**;
-- current estimated discharge rate in **percentage points per day**;
-- an additional estimate to 0% in the battery-chart metadata;
-- an estimate maturity label: **Early**, **Developing**, or **Good**.
-
-### Estimation rules
-
-The estimator does **not** use the complete historical battery record because
-that history contains the earlier v1.1.5 problem period, USB charging/rebound
-events, and battery-gauge jumps.
-
-Instead it:
-
-1. uses only data after the v1.1.4 rollback marker;
-2. uses at most the most recent 72 hours;
-3. excludes records where `charging=true`;
-4. treats a battery movement of more than 5 percentage points between adjacent
-   readings as a gauge/USB reset and starts a new clean segment;
-5. requires at least 12 hours and at least 6 clean records before projecting;
-6. uses linear regression across the clean segment rather than only comparing
-   the first and last reading;
-7. reports the practical **days-to-10%** estimate as the headline value.
-
-Because the SenseCraft battery gauge reports integer percentages and can be
-affected by USB power conditions, the result should be treated as a trend-based
-operating estimate rather than a precise battery-capacity measurement.
-
-As more stable v1.1.4 data accumulates, the projection should become less
-sensitive to individual 1% gauge changes.
-
-
-# Troubleshooting history
-
-## Original problem
-
-The E1002 experienced:
-
-- unexpectedly rapid battery drain;
-- intermittent `Offline` state;
-- missed automatic refreshes;
-- device occasionally appearing `Online` in SenseCraft even though no fresh telemetry was arriving;
-- manual Wake sometimes restoring operation.
-
-The problem occurred even in earlier single-page configurations, so page count alone was ruled out as the primary cause.
-
----
-
-## Important SenseCraft status finding
-
-SenseCraft's displayed `Online` status is not by itself proof that the E1002 is currently awake.
-
-During testing, the cloud could continue showing:
+During troubleshooting, SenseCraft could continue showing:
 
 ```text
 Online
@@ -359,144 +347,308 @@ while:
 - temperature remained unchanged;
 - humidity remained unchanged.
 
-For troubleshooting, **`lastSeen` is more useful than the visible Online label**.
-
----
-
-## Battery-percentage behaviour
-
-The battery percentage also changes noticeably depending on whether USB power is connected.
-
-Examples observed during troubleshooting included large immediate percentage changes after plugging in or removing USB.
-
-These jumps cannot represent real battery charge/discharge over only a few seconds.
-
-For battery trend analysis, readings should therefore be compared under the **same power condition**, preferably normal battery operation.
-
----
-
-## Firmware v1.1.5 investigation
-
-The affected device was confirmed to be running:
+For troubleshooting, use:
 
 ```text
-SenseCraft HMI v1.1.5
+lastSeen
+lastSeenAgeMinutes
 ```
 
-Other variables were tested or reduced as possible causes:
-
-- E1002 was moved to a fixed nearby Wi-Fi node;
-- network was restricted to 2.4 GHz;
-- static pages were used;
-- full firmware flash had previously been performed;
-- refresh interval was confirmed as 60 minutes;
-- deep sleep was confirmed enabled;
-- serial logs showed successful Wi-Fi and SenseCraft connection while USB powered.
-
-The problem continued intermittently.
+together with the retained history.
 
 ---
 
-## Serial diagnostic findings
+# E1002 Health Monitor — Static v3
 
-A complete v1.1.5 wake cycle captured over serial demonstrated that the E1002 was capable of:
+The physical Health Monitor is built from the latest retained readings.
 
-1. booting;
-2. initializing sensors and display;
-3. connecting to Wi-Fi;
-4. connecting to SenseCraft/MQTT;
-5. downloading deployed images;
-6. updating the e-paper display;
-7. reporting telemetry;
-8. acknowledging Sleep;
-9. entering deep sleep.
+It shows:
 
-This confirmed that the general hardware/software path could work.
+- latest battery percentage;
+- latest temperature;
+- latest humidity;
+- battery trend;
+- temperature trend;
+- humidity trend;
+- 24-hour change;
+- 24-hour min/max range;
+- latest status;
+- latest cloud-contact time.
 
-However, USB serial testing supplies external power and therefore cannot perfectly reproduce a battery-only failure.
+The page remains monochrome / e-paper friendly.
 
 ---
 
-## Firmware rollback test
+# Rolling 24-hour display
 
-A controlled rollback was performed:
+The E1002 charts use a rolling last 24 hours rather than the current calendar day.
+
+This means the whole chart width contains useful history instead of leaving a large future/empty area early in the day.
+
+Example:
 
 ```text
-v1.1.5 → v1.1.4
+08 → 12 → 16 → 20 → 00 → 04 → 08
 ```
-
-A **standard flash** was used first so existing configuration and deployed content could be preserved.
-
-The first post-flash display initially appeared blank, but a single manual Wake caused the content to load normally.
-
-After that, the E1002 began completing the expected cycle automatically:
-
-```text
-Sleep
-  ↓
-Hourly timer wake
-  ↓
-Wi-Fi / SenseCraft connection
-  ↓
-Page refresh
-  ↓
-Telemetry report
-  ↓
-Sleep
-```
-
-The battery trend also returned to normal.
 
 ---
 
-## Troubleshooting conclusion
+# Intelligent Y-axis scaling
 
-The strongest current evidence indicates that the abnormal battery drain and intermittent wake/connectivity behaviour were associated with **SenseCraft HMI v1.1.5 on this E1002**.
+Current minimum chart spans:
 
-Rolling back to:
+| Metric | Minimum span |
+|---|---:|
+| Battery | 10 percentage points |
+| Temperature | 3 °C |
+| Humidity | 15 percentage points |
+
+The chart scale automatically expands around the visible data.
+
+Battery and humidity remain bounded to their physical 0–100% range.
+
+---
+
+# Home Assistant dashboard
+
+`homeassistant.html` provides the richer history experience.
+
+Current periods:
+
+- Last 24 hours
+- Last 7 days
+- Last 30 days
+- Last 12 months
+
+It shows:
+
+- latest value;
+- selected-period range;
+- selected-period change;
+- intelligently scaled charts;
+- reduced point density on long ranges;
+- firmware rollback marker;
+- battery-life estimate.
+
+The physical E1002 Health Monitor intentionally remains simpler.
+
+---
+
+# Firmware v1.1.4 marker
+
+The Home Assistant battery chart includes a vertical marker for the rollback to:
 
 ```text
 SenseCraft HMI v1.1.4
 ```
 
-resolved both:
+when that date is visible in the selected period.
 
-- the wake / refresh / sleep reliability issue;
-- the excessive battery drain.
-
-Current working configuration:
+This helps separate:
 
 ```text
-Firmware:       SenseCraft HMI v1.1.4
-Deep sleep:     Enabled
-Refresh:        60 minutes
-Wi-Fi:          2.4 GHz
-Access point:   Fixed nearby node
-Result:         Stable
+earlier unstable / USB / v1.1.5 period
 ```
+
+from:
+
+```text
+stable v1.1.4 period
+```
+
+---
+
+# Battery-life estimate
+
+The Home Assistant dashboard estimates remaining battery life from the stable v1.1.4 battery-only discharge trend.
+
+It can show:
+
+- estimated days to 10%;
+- percentage points per day;
+- estimate to 0%;
+- maturity:
+  - Early
+  - Developing
+  - Good
+
+The estimate is intentionally **not shown on the physical E1002 Health Monitor**.
+
+## Estimation rules
+
+The estimator:
+
+1. uses only data after the v1.1.4 rollback marker;
+2. uses at most the most recent 72 hours;
+3. excludes `charging=true`;
+4. treats adjacent battery movements greater than 5 percentage points as a gauge/USB reset;
+5. requires at least 12 hours and at least 6 clean samples;
+6. uses linear regression rather than first-vs-last only;
+7. uses estimated days remaining to 10% as the headline measure.
+
+The estimate is a trend indicator rather than a precise battery-capacity measurement.
+
+---
+
+# Original troubleshooting problem
+
+The E1002 experienced:
+
+- unexpectedly rapid battery drain;
+- intermittent `Offline` state;
+- missed scheduled refreshes;
+- stale `Online` indication;
+- manual Wake occasionally restoring operation.
+
+The issue had also occurred with smaller/single-page configurations, so page count was not considered the primary cause.
+
+---
+
+# Battery percentage behaviour
+
+SenseCraft battery percentage can change noticeably when USB power is connected or removed.
+
+Immediate large percentage jumps do not represent real battery-energy changes over a few seconds.
+
+For battery trend analysis:
+
+- compare readings under similar power conditions;
+- prefer normal battery-only operation;
+- treat USB connection as an active intervention;
+- use the percentage mainly as a trend signal.
+
+---
+
+# Firmware v1.1.5 investigation
+
+Variables tested or reduced included:
+
+- fixed nearby Wi-Fi node;
+- 2.4 GHz Wi-Fi;
+- static E1002 pages;
+- full firmware flash;
+- 60-minute refresh;
+- deep sleep enabled;
+- successful serial wake cycles.
+
+The intermittent problem continued on v1.1.5.
+
+---
+
+# Firmware rollback resolution
+
+Controlled rollback:
+
+```text
+v1.1.5 → v1.1.4
+```
+
+After one initial manual Wake, the E1002 returned to the expected automatic cycle:
+
+```text
+Sleep
+  ↓
+Timer wake
+  ↓
+Wi-Fi / SenseCraft connection
+  ↓
+Page refresh
+  ↓
+Telemetry
+  ↓
+Sleep
+```
+
+Battery consumption returned to normal.
+
+The battery-drain/wake-sleep issue is therefore considered resolved.
 
 ---
 
 # Recommended operating configuration
 
-For the current stable setup:
+Keep:
 
-1. Keep SenseCraft HMI at **v1.1.4**.
-2. Keep deep sleep enabled.
-3. Keep refresh interval at 60 minutes.
-4. Keep the E1002 on a reliable nearby 2.4 GHz Wi-Fi connection.
-5. Avoid unnecessary USB connections when assessing battery drain.
-6. Use the GitHub history and `lastSeen` field to verify wake-cycle health.
-7. Do not use the SenseCraft `Online` label alone as proof that a new device contact occurred.
-8. Treat `index.html` as generated output and make future E1002 dashboard changes in `scripts/e1002-health-v2.mjs`.
+```text
+Firmware:       v1.1.4
+Deep sleep:     Enabled
+Refresh:        60 minutes
+Wi-Fi:          2.4 GHz
+AP/node:        Fixed nearby node
+```
+
+Also:
+
+- avoid unnecessary USB connections when evaluating battery behaviour;
+- use GitHub history and `lastSeen` to confirm wake-cycle health;
+- do not rely on SenseCraft `Online` alone;
+- do not upgrade back to v1.1.5 simply to retest unless there is a specific reason.
 
 ---
 
-# Updating the dashboards
+# SenseCraft HMI setup
 
-## E1002 static display
+Use the direct production BMP:
 
-Edit:
+```text
+https://vasanthan1276.github.io/e1002-sensor-tracker/health.bmp
+```
+
+Target:
+
+```text
+Width:  800
+Height: 480
+```
+
+## Important crop / copied-page note
+
+When switching an existing SenseCraft page from HTML or PNG to direct BMP, an old page may retain crop/position/zoom settings.
+
+If the preview shows:
+
+- a large black region;
+- partial content;
+- vertical shifting;
+- unexpected cropping;
+
+create a **brand-new SenseCraft page** and test the BMP there first.
+
+Do not modify the GitHub generator solely to compensate for stale SenseCraft crop settings unless `health.bmp` is also wrong when opened directly outside SenseCraft.
+
+---
+
+# Required GitHub secret
+
+The capture workflow requires:
+
+```text
+SENSECRAFT_API_KEY
+```
+
+configured in repository Actions secrets.
+
+Never place the API key directly in source files.
+
+---
+
+# Data retention
+
+The capture script retains approximately:
+
+```text
+366 days
+```
+
+of sensor history.
+
+Older readings are automatically removed as new readings are captured.
+
+---
+
+# Updating the physical E1002 dashboard
+
+For lasting visual/layout changes, edit:
 
 ```text
 scripts/e1002-health-v2.mjs
@@ -508,17 +660,18 @@ Then run:
 Capture E1002 Sensor History
 ```
 
-from GitHub Actions.
-
 The workflow will regenerate:
 
 ```text
 index.html
+health.bmp
 ```
 
-and commit it automatically.
+Do not manually edit generated `index.html` for persistent changes.
 
-## Home Assistant history page
+---
+
+# Updating Home Assistant
 
 Edit:
 
@@ -526,100 +679,47 @@ Edit:
 homeassistant.html
 ```
 
-The page reads the retained JSON history directly and does not need the E1002 to render it.
+The Home Assistant page reads the retained JSON history and remains independent of the physical BMP output.
 
 ---
 
-# Required GitHub secret
+# E1002 project standard
 
-The workflow requires:
+The project-wide standard for physical E1002 content is now:
 
 ```text
-SENSECRAFT_API_KEY
+Data/API source
+      ↓
+GitHub Actions
+      ↓
+Pre-rendered 800×480 BMP
+      ↓
+SenseCraft HMI
+      ↓
+reTerminal E1002
 ```
 
-configured under the repository's GitHub Actions secrets.
+HTML remains appropriate for:
 
-Do not place the API key directly in source files.
+- Home Assistant;
+- browser dashboards;
+- administration;
+- preview;
+- deterministic image render sources.
+
+But **physical E1002 production links should use direct BMP files wherever practical**.
 
 ---
 
-# Data retention
-
-The capture script currently keeps approximately:
+# Current production links
 
 ```text
-366 days
+E1002 Health Monitor:
+https://vasanthan1276.github.io/e1002-sensor-tracker/health.bmp
+
+Browser preview:
+https://vasanthan1276.github.io/e1002-sensor-tracker/
+
+Home Assistant:
+https://vasanthan1276.github.io/e1002-sensor-tracker/homeassistant.html
 ```
-
-of readings.
-
-Older readings are removed automatically as new readings are captured.
-
----
-
-# Project timeline — key milestones
-
-### Initial version
-- Hourly battery, temperature and humidity capture.
-- JSON history.
-- CSV history.
-- GitHub Pages dashboard.
-
-### Health Monitor v2
-- Added SenseCraft device-status tracking.
-- Added raw status and status source.
-- Added `lastSeen`.
-- Added `lastSeenAgeMinutes`.
-- Added deep-sleep information.
-- Added fully static 800 × 480 E1002 page.
-
-### Troubleshooting phase
-- Investigated battery drain.
-- Investigated stale SenseCraft Online state.
-- Confirmed Sleep / Online raw status mapping.
-- Tested Wi-Fi placement and 2.4 GHz setup.
-- Captured serial logs.
-- Compared USB-powered and battery-only behaviour.
-- Identified firmware v1.1.5 as the leading suspect.
-
-### Firmware resolution
-- Standard rollback from v1.1.5 to v1.1.4.
-- Automatic wake / refresh / sleep cycle restored.
-- Battery consumption returned to normal.
-- Battery-drain problem considered resolved.
-
-### Static v3 / chart upgrade
-- Replaced calendar-day chart with rolling 24-hour view.
-- Added intelligent Y-axis scales.
-- Added 24-hour metric change.
-- Added visible range values.
-- Improved long-range Home Assistant charts.
-- Added v1.1.4 firmware marker to Home Assistant battery history.
-- Added Home Assistant battery-life projection using the clean v1.1.4 discharge trend.
-- Added days-to-10%, percentage-points/day and estimate maturity.
-
----
-
-# Notes for future changes
-
-The current system has intentionally been kept simple:
-
-- Node.js only;
-- no external charting dependency;
-- static SVG generation for the E1002;
-- no runtime API fetches on the E1002 page;
-- GitHub performs the data collection and rendering;
-- the E1002 only needs to download a fully rendered static page/image.
-
-This architecture minimizes work performed by the battery-powered E1002 during each refresh.
-
----
-
-## Repository
-
-`Vasanthan1276/e1002-sensor-tracker`
-
-Project purpose:
-
-> Long-term health monitoring, battery tracking and troubleshooting of a Seeed Studio reTerminal E1002 using SenseCraft HMI.
