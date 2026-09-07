@@ -3,7 +3,8 @@ name: Capture E1002 Sensor History
 on:
   schedule:
     # Four opportunities every hour.
-    # Only one reading per ~hour will actually be saved.
+    # The capture script still applies its existing ~50-minute spacing rule,
+    # so normal retained history remains approximately hourly.
     - cron: "7,22,37,52 * * * *"
 
   workflow_dispatch:
@@ -18,16 +19,36 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Capture E1002 data and build static Health Monitor v2
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install E1002 render dependencies
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+          python -m pip install --upgrade pip
+          pip install pillow
+
+      - name: Capture E1002 data and build static Health Monitor
         env:
           SENSECRAFT_API_KEY: ${{ secrets.SENSECRAFT_API_KEY }}
         run: node scripts/e1002-health-v2.mjs
+
+      - name: Render direct E1002 BMP
+        run: node scripts/render-e1002-bmp.mjs
 
       - name: Commit sensor history and static dashboard
         run: |
@@ -37,7 +58,8 @@ jobs:
           git add \
             data/sensor-history.json \
             data/e1002-status-history.csv \
-            index.html
+            index.html \
+            health.bmp
 
           if git diff --cached --quiet; then
             echo "No E1002 changes to commit."
