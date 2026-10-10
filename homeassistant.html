@@ -279,30 +279,20 @@
 
     <div class="footer">
       <span>Source: SenseCraft E1002 sensor API</span>
-      <span id="firmware-status">Current firmware: v1.2.2 · firmware markers · battery-life projection</span>
+      <span>Dynamic chart scale · firmware markers · current v1.2.2 · battery-life projection</span>
     </div>
   </main>
 
   <script>
     const DATA_URL = "./data/sensor-history.json";
     const SVG_NS = "http://www.w3.org/2000/svg";
-    const DEFAULT_FIRMWARE_TRANSITIONS = [
-      {
-        version: "v1.1.4",
-        timestamp: "2026-09-04T20:25:42Z",
-        note: "Rollback from v1.1.5; stable baseline"
-      },
-      {
-        version: "v1.2.2",
-        timestamp: "2026-10-10T04:34:42Z",
-        note: "Standard-flash controlled qualification"
-      }
-    ];
+    const FIRMWARE_114_TIME = new Date("2026-09-04T20:25:42Z").getTime();
+    const FIRMWARE_122_TIME = new Date("2026-10-10T04:34:42Z").getTime();
 
-    let firmwareTransitions = [...DEFAULT_FIRMWARE_TRANSITIONS];
-    let currentFirmware = "v1.2.2";
-    let batteryEstimateStartTime =
-      new Date(DEFAULT_FIRMWARE_TRANSITIONS.at(-1).timestamp).getTime();
+    const FIRMWARE_TRANSITIONS = [
+      { time: FIRMWARE_114_TIME, label: "v1.1.4" },
+      { time: FIRMWARE_122_TIME, label: "v1.2.2" }
+    ];
 
     const ranges = {
       "24h": { hours: 24, title: "Last 24 hours", bucketHours: 1 },
@@ -427,7 +417,15 @@
             ? values[values.length - 1]
             : values.reduce((total, item) => total + item, 0) / values.length;
 
-          return { timestamp: new Date(time).toISOString(), value };
+          // Keep the plotted point aligned with the latest real reading in
+          // each bucket. This allows firmware markers near "now" to remain
+          // visible in the 30-day and 12-month aggregated views.
+          const latestItem = items[items.length - 1];
+
+          return {
+            timestamp: latestItem?.timestamp || new Date(time).toISOString(),
+            value
+          };
         });
     }
 
@@ -488,31 +486,37 @@
       }));
 
       if (metric === "battery") {
-        firmwareTransitions.forEach((marker, markerIndex) => {
-          const markerTime = new Date(marker.timestamp).getTime();
-
-          if (
-            !Number.isFinite(markerTime) ||
-            markerTime < firstTime ||
-            markerTime > lastTime
-          ) {
-            return;
-          }
+        FIRMWARE_TRANSITIONS.forEach((marker, markerIndex) => {
+          if (marker.time < firstTime || marker.time > lastTime) return;
 
           const markerX =
-            p.left + ((markerTime - firstTime) / timeSpan) * plotWidth;
+            p.left + ((marker.time - firstTime) / timeSpan) * plotWidth;
+
+          const isCurrentFirmware = marker.label === "v1.2.2";
 
           root.appendChild(svg("line", {
-            x1: markerX, y1: p.top, x2: markerX, y2: height - p.bottom,
-            stroke: "#555", "stroke-width": 1.5, "stroke-dasharray": "5 4"
+            x1: markerX,
+            y1: p.top,
+            x2: markerX,
+            y2: height - p.bottom,
+            stroke: isCurrentFirmware ? "#111" : "#666",
+            "stroke-width": isCurrentFirmware ? 2.2 : 1.5,
+            "stroke-dasharray": isCurrentFirmware ? "4 3" : "5 4"
           }));
 
+          // Keep labels inside the plot area when a firmware change is near
+          // the right edge (for example, immediately after an upgrade).
+          const nearRightEdge = markerX > width - p.right - 75;
+
           const markerLabel = svg("text", {
-            x: markerX + 5,
+            x: nearRightEdge ? markerX - 6 : markerX + 6,
             y: p.top + 11 + (markerIndex % 2) * 13,
-            "font-size": 10, "font-weight": 700, fill: "#444"
+            "text-anchor": nearRightEdge ? "end" : "start",
+            "font-size": 10,
+            "font-weight": isCurrentFirmware ? 800 : 700,
+            fill: isCurrentFirmware ? "#111" : "#444"
           });
-          markerLabel.textContent = marker.version;
+          markerLabel.textContent = marker.label;
           root.appendChild(markerLabel);
         });
       }
@@ -646,7 +650,7 @@
       const latestBattery = Number(latest.battery);
 
       const lookbackStart = Math.max(
-        batteryEstimateStartTime,
+        FIRMWARE_114_TIME,
         latestTime - 72 * 60 * 60 * 1000
       );
 
@@ -829,46 +833,6 @@
           .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
         updatedAt = data.updatedAt;
-
-        if (
-          Array.isArray(data.firmwareTransitions) &&
-          data.firmwareTransitions.length
-        ) {
-          firmwareTransitions = data.firmwareTransitions
-            .filter(item => item?.version && item?.timestamp)
-            .sort(
-              (a, b) =>
-                new Date(a.timestamp).getTime() -
-                new Date(b.timestamp).getTime()
-            );
-        }
-
-        currentFirmware =
-          data.currentFirmware ||
-          allReadings[allReadings.length - 1]?.firmware ||
-          currentFirmware;
-
-        const currentTransition =
-          [...firmwareTransitions]
-            .reverse()
-            .find(item => item.version === currentFirmware) ||
-          firmwareTransitions[firmwareTransitions.length - 1];
-
-        const currentTransitionTime =
-          currentTransition
-            ? new Date(currentTransition.timestamp).getTime()
-            : NaN;
-
-        if (Number.isFinite(currentTransitionTime)) {
-          batteryEstimateStartTime = currentTransitionTime;
-        }
-
-        const firmwareStatus = document.getElementById("firmware-status");
-        if (firmwareStatus) {
-          firmwareStatus.textContent =
-            `Current firmware: ${currentFirmware} · firmware markers · ` +
-            `battery-life projection`;
-        }
 
         if (!allReadings.length) {
           throw new Error("No sensor readings available.");
