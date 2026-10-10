@@ -14,32 +14,29 @@ The project was also used to diagnose and resolve the earlier E1002 battery-drai
 
 # Current status
 
-**Status: stable / battery-drain issue resolved**
+**Status: SenseCraft HMI v1.2.2 controlled qualification underway**
 
-Current working device configuration:
+Current device configuration:
 
 ```text
-Firmware:       SenseCraft HMI v1.1.4
+Firmware:       SenseCraft HMI v1.2.2
+Upgraded:       2026-10-10 12:34 SGT
 Deep sleep:     Enabled
 Refresh:        60 minutes
 Wi-Fi:          2.4 GHz
 Access point:   Fixed nearby node
-Result:         Stable
+Result:         Initial post-flash cycle successful
 ```
 
 SenseCraft HMI **v1.1.5** was the leading cause of the earlier intermittent wake/sleep, connectivity, and excessive battery-drain behaviour on this E1002.
 
-Rolling back to **v1.1.4** restored:
+Rolling back to **v1.1.4** restored normal operation and established the stable baseline used before this upgrade.
 
-- automatic wake cycles;
-- scheduled display refresh;
-- SenseCraft telemetry reporting;
-- return to deep sleep;
-- normal battery consumption.
+On **2026-10-10 at 12:34 SGT**, the device was Standard-Flashed from **v1.1.4 → v1.2.2**. The first post-flash cycle successfully reconnected to Wi-Fi and SenseCraft, downloaded all configured pages, refreshed the display, reported telemetry, acknowledged Sleep, and entered deep sleep.
 
 Current recommendation:
 
-> Remain on SenseCraft HMI v1.1.4 until a later release is specifically verified to resolve the regression.
+> Keep v1.2.2 under controlled observation for at least 72 hours. Keep the 60-minute refresh, deep sleep, Wi-Fi and BMP pages unchanged. Roll back to v1.1.4 if the earlier missed-wake, stale-cloud-contact or abnormal battery-drain pattern returns.
 
 ---
 
@@ -182,6 +179,8 @@ It:
 - records temperature;
 - records humidity;
 - records device/cloud timing information;
+- records the firmware version on new readings;
+- records firmware transition metadata;
 - records `lastSeen`;
 - records `lastSeenAgeMinutes`;
 - retains approximately 366 days of history;
@@ -295,6 +294,7 @@ The project records:
 |---|---|
 | `timestamp` | GitHub/API polling timestamp |
 | `deviceId` | SenseCraft device ID |
+| `firmware` | Firmware version recorded for new readings |
 | `status` | Normalized E1002 state |
 | `rawStatus` | Raw SenseCraft status code |
 | `statusSource` | API source used for status |
@@ -307,6 +307,15 @@ The project records:
 | `refreshIntervalMinutes` | Configured E1002 refresh interval |
 | `deepSleepDisabled` | SenseCraft sleep setting |
 | `targetDeepSleepEnabled` | Target deep-sleep state |
+
+The retained JSON also stores top-level firmware metadata:
+
+```text
+currentFirmware
+firmwareTransitions[]
+```
+
+This lets the Home Assistant dashboard draw firmware markers and restart its battery-life baseline when the production firmware changes.
 
 ---
 
@@ -427,40 +436,40 @@ It shows:
 - selected-period change;
 - intelligently scaled charts;
 - reduced point density on long ranges;
-- firmware rollback marker;
+- firmware transition markers;
+- current firmware status;
 - battery-life estimate.
 
 The physical E1002 Health Monitor intentionally remains simpler.
 
 ---
 
-# Firmware v1.1.4 marker
+# Firmware transition markers
 
-The Home Assistant battery chart includes a vertical marker for the rollback to:
+The Home Assistant battery chart includes vertical markers for the two important firmware transitions:
 
 ```text
-SenseCraft HMI v1.1.4
+v1.1.4 rollback: 2026-09-05 04:25 SGT
+v1.2.2 upgrade:  2026-10-10 12:34 SGT
 ```
 
-when that date is visible in the selected period.
-
-This helps separate:
+This separates the history into three useful periods:
 
 ```text
 earlier unstable / USB / v1.1.5 period
+        ↓
+stable v1.1.4 baseline
+        ↓
+v1.2.2 controlled qualification period
 ```
 
-from:
-
-```text
-stable v1.1.4 period
-```
+The firmware transition list is now also written into `data/sensor-history.json`, so the Home Assistant page can read the current firmware and marker history from the retained data.
 
 ---
 
 # Battery-life estimate
 
-The Home Assistant dashboard estimates remaining battery life from the stable v1.1.4 battery-only discharge trend.
+During the v1.2.2 qualification, the Home Assistant dashboard estimates remaining battery life only from post-v1.2.2 battery-only history.
 
 It can show:
 
@@ -478,7 +487,7 @@ The estimate is intentionally **not shown on the physical E1002 Health Monitor**
 
 The estimator:
 
-1. uses only data after the v1.1.4 rollback marker;
+1. uses only data after the current firmware transition marker;
 2. uses at most the most recent 72 hours;
 3. excludes `charging=true`;
 4. treats adjacent battery movements greater than 5 percentage points as a gauge/USB reset;
@@ -535,6 +544,46 @@ The intermittent problem continued on v1.1.5.
 
 ---
 
+# Firmware v1.2.2 qualification
+
+Controlled upgrade:
+
+```text
+v1.1.4 → v1.2.2
+```
+
+Upgrade marker:
+
+```text
+2026-10-10 12:34 SGT
+2026-10-10 04:34 UTC
+```
+
+The first v1.2.2 boot confirmed:
+
+- firmware version `1.2.2` and production firmware environment;
+- saved 60-minute refresh interval retained;
+- `deepSleepEnabled=true` retained;
+- saved Wi-Fi credentials retained and automatic reconnect succeeded;
+- SenseCraft session and MQTT connection succeeded;
+- all 13 configured images were processed successfully;
+- display refresh completed;
+- telemetry reported successfully;
+- Sleep status was acknowledged by MQTT;
+- the device entered deep sleep.
+
+A new v1.2.2 log difference was also observed:
+
+```text
+GT911 touch controller not found; touch input disabled.
+```
+
+The dashboard does not depend on touch input, so this is not currently blocking operation, but it should be monitored during the qualification period.
+
+The initial post-flash cycle is therefore considered **successful**, but v1.2.2 remains under observation until repeated timer wakes and battery behaviour are confirmed.
+
+---
+
 # Firmware rollback resolution
 
 Controlled rollback:
@@ -567,22 +616,24 @@ The battery-drain/wake-sleep issue is therefore considered resolved.
 
 # Recommended operating configuration
 
-Keep:
+Current qualification configuration:
 
 ```text
-Firmware:       v1.1.4
+Firmware:       v1.2.2
 Deep sleep:     Enabled
 Refresh:        60 minutes
 Wi-Fi:          2.4 GHz
 AP/node:        Fixed nearby node
 ```
 
-Also:
+During the qualification period:
 
+- do not change refresh interval, Wi-Fi node, page count or BMP URLs;
 - avoid unnecessary USB connections when evaluating battery behaviour;
 - use GitHub history and `lastSeen` to confirm wake-cycle health;
 - do not rely on SenseCraft `Online` alone;
-- do not upgrade back to v1.1.5 simply to retest unless there is a specific reason.
+- keep v1.1.4 available as the rollback firmware;
+- roll back if missed wakes, stale telemetry or abnormal battery drain returns.
 
 ---
 

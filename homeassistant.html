@@ -279,14 +279,30 @@
 
     <div class="footer">
       <span>Source: SenseCraft E1002 sensor API</span>
-      <span>Dynamic chart scale · v1.1.4 marker · battery-life projection</span>
+      <span id="firmware-status">Current firmware: v1.2.2 · firmware markers · battery-life projection</span>
     </div>
   </main>
 
   <script>
     const DATA_URL = "./data/sensor-history.json";
     const SVG_NS = "http://www.w3.org/2000/svg";
-    const FIRMWARE_114_TIME = new Date("2026-09-04T20:25:42Z").getTime();
+    const DEFAULT_FIRMWARE_TRANSITIONS = [
+      {
+        version: "v1.1.4",
+        timestamp: "2026-09-04T20:25:42Z",
+        note: "Rollback from v1.1.5; stable baseline"
+      },
+      {
+        version: "v1.2.2",
+        timestamp: "2026-10-10T04:34:42Z",
+        note: "Standard-flash controlled qualification"
+      }
+    ];
+
+    let firmwareTransitions = [...DEFAULT_FIRMWARE_TRANSITIONS];
+    let currentFirmware = "v1.2.2";
+    let batteryEstimateStartTime =
+      new Date(DEFAULT_FIRMWARE_TRANSITIONS.at(-1).timestamp).getTime();
 
     const ranges = {
       "24h": { hours: 24, title: "Last 24 hours", bucketHours: 1 },
@@ -471,25 +487,34 @@
         y2: height - p.bottom, stroke: "#111", "stroke-width": 1
       }));
 
-      if (
-        metric === "battery" &&
-        FIRMWARE_114_TIME >= firstTime &&
-        FIRMWARE_114_TIME <= lastTime
-      ) {
-        const markerX =
-          p.left + ((FIRMWARE_114_TIME - firstTime) / timeSpan) * plotWidth;
+      if (metric === "battery") {
+        firmwareTransitions.forEach((marker, markerIndex) => {
+          const markerTime = new Date(marker.timestamp).getTime();
 
-        root.appendChild(svg("line", {
-          x1: markerX, y1: p.top, x2: markerX, y2: height - p.bottom,
-          stroke: "#555", "stroke-width": 1.5, "stroke-dasharray": "5 4"
-        }));
+          if (
+            !Number.isFinite(markerTime) ||
+            markerTime < firstTime ||
+            markerTime > lastTime
+          ) {
+            return;
+          }
 
-        const markerLabel = svg("text", {
-          x: markerX + 5, y: p.top + 11,
-          "font-size": 10, "font-weight": 700, fill: "#444"
+          const markerX =
+            p.left + ((markerTime - firstTime) / timeSpan) * plotWidth;
+
+          root.appendChild(svg("line", {
+            x1: markerX, y1: p.top, x2: markerX, y2: height - p.bottom,
+            stroke: "#555", "stroke-width": 1.5, "stroke-dasharray": "5 4"
+          }));
+
+          const markerLabel = svg("text", {
+            x: markerX + 5,
+            y: p.top + 11 + (markerIndex % 2) * 13,
+            "font-size": 10, "font-weight": 700, fill: "#444"
+          });
+          markerLabel.textContent = marker.version;
+          root.appendChild(markerLabel);
         });
-        markerLabel.textContent = "v1.1.4";
-        root.appendChild(markerLabel);
       }
 
       const plotted = points.map(point => {
@@ -621,7 +646,7 @@
       const latestBattery = Number(latest.battery);
 
       const lookbackStart = Math.max(
-        FIRMWARE_114_TIME,
+        batteryEstimateStartTime,
         latestTime - 72 * 60 * 60 * 1000
       );
 
@@ -804,6 +829,46 @@
           .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
         updatedAt = data.updatedAt;
+
+        if (
+          Array.isArray(data.firmwareTransitions) &&
+          data.firmwareTransitions.length
+        ) {
+          firmwareTransitions = data.firmwareTransitions
+            .filter(item => item?.version && item?.timestamp)
+            .sort(
+              (a, b) =>
+                new Date(a.timestamp).getTime() -
+                new Date(b.timestamp).getTime()
+            );
+        }
+
+        currentFirmware =
+          data.currentFirmware ||
+          allReadings[allReadings.length - 1]?.firmware ||
+          currentFirmware;
+
+        const currentTransition =
+          [...firmwareTransitions]
+            .reverse()
+            .find(item => item.version === currentFirmware) ||
+          firmwareTransitions[firmwareTransitions.length - 1];
+
+        const currentTransitionTime =
+          currentTransition
+            ? new Date(currentTransition.timestamp).getTime()
+            : NaN;
+
+        if (Number.isFinite(currentTransitionTime)) {
+          batteryEstimateStartTime = currentTransitionTime;
+        }
+
+        const firmwareStatus = document.getElementById("firmware-status");
+        if (firmwareStatus) {
+          firmwareStatus.textContent =
+            `Current firmware: ${currentFirmware} · firmware markers · ` +
+            `battery-life projection`;
+        }
 
         if (!allReadings.length) {
           throw new Error("No sensor readings available.");

@@ -6,6 +6,22 @@ const RETENTION_DAYS = 366;
 const MINIMUM_SPACING_MINUTES = 50;
 const DEVICE_MAC = "9C:13:9E:AB:F6:94";
 
+// Firmware qualification metadata.
+// Update this block when the production E1002 firmware changes.
+const CURRENT_FIRMWARE = "v1.2.2";
+const FIRMWARE_TRANSITIONS = [
+  {
+    version: "v1.1.4",
+    timestamp: "2026-09-04T20:25:42Z",
+    note: "Rollback from v1.1.5; stable baseline"
+  },
+  {
+    version: "v1.2.2",
+    timestamp: "2026-10-10T04:34:42Z",
+    note: "Standard-flash controlled qualification"
+  }
+];
+
 const IOT_ENDPOINT =
   `https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/iot_data/${DEVICE_ID}`;
 
@@ -595,7 +611,7 @@ function generateStaticDashboard(history) {
 
     <div class="footer">
       <span>Status: ${latestStatus} · Last seen: ${latestLastSeen}</span>
-      <span>Static v3 · rolling 24h · retained: ${RETENTION_DAYS} days</span>
+      <span>FW ${CURRENT_FIRMWARE} · Static v3 · rolling 24h · retained: ${RETENTION_DAYS} days</span>
     </div>
   </main>
 </body>
@@ -737,6 +753,7 @@ async function main() {
   const reading = {
     timestamp: pollTimestamp,
     deviceId: DEVICE_ID,
+    firmware: CURRENT_FIRMWARE,
 
     battery: Number(
       result?.battery?.level ??
@@ -801,6 +818,8 @@ async function main() {
     );
 
   history.updatedAt = reading.timestamp;
+  history.currentFirmware = CURRENT_FIRMWARE;
+  history.firmwareTransitions = FIRMWARE_TRANSITIONS;
 
   fs.writeFileSync(
     HISTORY_FILE,
@@ -811,6 +830,7 @@ async function main() {
   const csvHeader = [
     "timestamp",
     "deviceId",
+    "firmware",
     "status",
     "rawStatus",
     "statusSource",
@@ -828,6 +848,7 @@ async function main() {
   const csvRows = history.readings.map(item => [
     item.timestamp,
     item.deviceId ?? "",
+    item.firmware ?? "",
     item.status ?? "Status unavailable",
     item.rawStatus ?? "",
     item.statusSource ?? "",
