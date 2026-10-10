@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-10T02:16:38.257Z",
+  "updatedAt": "2026-10-10T04:51:22.285Z",
   "readings": [
     {
       "timestamp": "2026-07-04T01:07:44.722Z",
@@ -11871,6 +11871,36 @@
       "refreshIntervalMinutes": 60,
       "deepSleepDisabled": 0,
       "targetDeepSleepEnabled": 1
+    },
+    {
+      "timestamp": "2026-10-10T04:51:22.285Z",
+      "deviceId": "20230256",
+      "firmware": "v1.2.2",
+      "battery": 79,
+      "charging": false,
+      "temperature": 33.6,
+      "humidity": 59.5,
+      "status": "Sleep",
+      "rawStatus": 3,
+      "statusSource": "v2-device-list",
+      "lastSeen": "2026-10-10T04:36:59.958Z",
+      "lastSeenAgeMinutes": 14,
+      "refreshIntervalMinutes": 60,
+      "deepSleepDisabled": 0,
+      "targetDeepSleepEnabled": 1
+    }
+  ],
+  "currentFirmware": "v1.2.2",
+  "firmwareTransitions": [
+    {
+      "version": "v1.1.4",
+      "timestamp": "2026-09-04T20:25:42Z",
+      "note": "Rollback from v1.1.5; stable baseline"
+    },
+    {
+      "version": "v1.2.2",
+      "timestamp": "2026-10-10T04:34:42Z",
+      "note": "Standard-flash controlled qualification"
     }
   ]
 }
