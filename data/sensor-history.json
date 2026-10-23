@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-22T23:41:02.792Z",
+  "updatedAt": "2026-10-23T02:02:26.170Z",
   "readings": [
     {
       "timestamp": "2026-07-04T01:07:44.722Z",
@@ -13126,6 +13126,23 @@
       "statusSource": "v2-device-list",
       "lastSeen": "2026-10-22T23:31:25.228Z",
       "lastSeenAgeMinutes": 10,
+      "refreshIntervalMinutes": 60,
+      "deepSleepDisabled": 0,
+      "targetDeepSleepEnabled": 1
+    },
+    {
+      "timestamp": "2026-10-23T02:02:26.170Z",
+      "deviceId": "20230256",
+      "firmware": "v1.2.2",
+      "battery": 11,
+      "charging": false,
+      "temperature": 30.8,
+      "humidity": 71.2,
+      "status": "Sleep",
+      "rawStatus": 3,
+      "statusSource": "v2-device-list",
+      "lastSeen": "2026-10-23T01:33:20.108Z",
+      "lastSeenAgeMinutes": 29,
       "refreshIntervalMinutes": 60,
       "deepSleepDisabled": 0,
       "targetDeepSleepEnabled": 1
