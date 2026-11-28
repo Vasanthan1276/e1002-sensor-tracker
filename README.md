@@ -14,29 +14,10 @@ The project was also used to diagnose and resolve the earlier E1002 battery-drai
 
 # Current status
 
-**Status: SenseCraft HMI v1.2.2 controlled qualification underway**
+**Status: SenseCraft HMI v2.01 installed**
 
-Current device configuration:
+The E1002 was upgraded from **v1.2.2 to v2.01** on **2026-11-28 at 09:00 SGT**. Battery performance is under observation after the upgrade.
 
-```text
-Firmware:       SenseCraft HMI v1.2.2
-Upgraded:       2026-10-10 12:34 SGT
-Deep sleep:     Enabled
-Refresh:        60 minutes
-Wi-Fi:          2.4 GHz
-Access point:   Fixed nearby node
-Result:         Initial post-flash cycle successful
-```
-
-SenseCraft HMI **v1.1.5** was the leading cause of the earlier intermittent wake/sleep, connectivity, and excessive battery-drain behaviour on this E1002.
-
-Rolling back to **v1.1.4** restored normal operation and established the stable baseline used before this upgrade.
-
-On **2026-10-10 at 12:34 SGT**, the device was Standard-Flashed from **v1.1.4 → v1.2.2**. The first post-flash cycle successfully reconnected to Wi-Fi and SenseCraft, downloaded all configured pages, refreshed the display, reported telemetry, acknowledged Sleep, and entered deep sleep.
-
-Current recommendation:
-
-> Keep v1.2.2 under controlled observation for at least 72 hours. Keep the 60-minute refresh, deep sleep, Wi-Fi and BMP pages unchanged. Roll back to v1.1.4 if the earlier missed-wake, stale-cloud-contact or abnormal battery-drain pattern returns.
 
 ---
 
@@ -446,14 +427,15 @@ The physical E1002 Health Monitor intentionally remains simpler.
 
 # Firmware transition markers
 
-The Home Assistant battery chart includes vertical markers for the two important firmware transitions:
+The Home Assistant battery chart includes vertical markers for the recorded firmware transitions:
 
 ```text
 v1.1.4 rollback: 2026-09-05 04:25 SGT
 v1.2.2 upgrade:  2026-10-10 12:34 SGT
+v2.01 upgrade:   2026-11-28 09:00 SGT
 ```
 
-This separates the history into three useful periods:
+This separates the history into four periods:
 
 ```text
 earlier unstable / USB / v1.1.5 period
@@ -461,6 +443,8 @@ earlier unstable / USB / v1.1.5 period
 stable v1.1.4 baseline
         ↓
 v1.2.2 controlled qualification period
+        ↓
+v2.01 monitoring period
 ```
 
 The firmware transition list is now also written into `data/sensor-history.json`, so the Home Assistant page can read the current firmware and marker history from the retained data.
@@ -469,7 +453,7 @@ The firmware transition list is now also written into `data/sensor-history.json`
 
 # Battery-life estimate
 
-During the v1.2.2 qualification, the Home Assistant dashboard estimates remaining battery life only from post-v1.2.2 battery-only history.
+The Home Assistant dashboard estimates remaining battery life from battery-only history since the v2.01 upgrade.
 
 It can show:
 
@@ -619,7 +603,7 @@ The battery-drain/wake-sleep issue is therefore considered resolved.
 Current qualification configuration:
 
 ```text
-Firmware:       v1.2.2
+Firmware:       v2.01
 Deep sleep:     Enabled
 Refresh:        60 minutes
 Wi-Fi:          2.4 GHz
