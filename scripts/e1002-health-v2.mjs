@@ -8,7 +8,7 @@ const DEVICE_MAC = "9C:13:9E:AB:F6:94";
 
 // Firmware qualification metadata.
 // Update this block when the production E1002 firmware changes.
-const CURRENT_FIRMWARE = "v1.2.2";
+const CURRENT_FIRMWARE = "v2.01";
 const FIRMWARE_TRANSITIONS = [
   {
     version: "v1.1.4",
@@ -19,6 +19,11 @@ const FIRMWARE_TRANSITIONS = [
     version: "v1.2.2",
     timestamp: "2026-10-10T04:34:42Z",
     note: "Standard-flash controlled qualification"
+  },
+  {
+    version: "v2.01",
+    timestamp: "2026-11-28T01:00:00Z",
+    note: "Firmware upgraded to v2.01"
   }
 ];
 
