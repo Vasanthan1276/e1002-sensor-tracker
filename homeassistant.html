@@ -279,7 +279,7 @@
 
     <div class="footer">
       <span>Source: SenseCraft E1002 sensor API</span>
-      <span>Dynamic chart scale · firmware markers · current v1.2.2 · battery-life projection</span>
+      <span>Dynamic chart scale · firmware markers · current v2.01 · battery-life projection</span>
     </div>
   </main>
 
@@ -289,9 +289,13 @@
     const FIRMWARE_114_TIME = new Date("2026-09-04T20:25:42Z").getTime();
     const FIRMWARE_122_TIME = new Date("2026-10-10T04:34:42Z").getTime();
 
+    const CURRENT_FIRMWARE = "v2.01";
+    const CURRENT_FIRMWARE_TIME = new Date("2026-11-28T01:00:00Z").getTime();
+
     const FIRMWARE_TRANSITIONS = [
       { time: FIRMWARE_114_TIME, label: "v1.1.4" },
-      { time: FIRMWARE_122_TIME, label: "v1.2.2" }
+      { time: FIRMWARE_122_TIME, label: "v1.2.2" },
+      { time: CURRENT_FIRMWARE_TIME, label: CURRENT_FIRMWARE }
     ];
 
     const ranges = {
@@ -492,7 +496,7 @@
           const markerX =
             p.left + ((marker.time - firstTime) / timeSpan) * plotWidth;
 
-          const isCurrentFirmware = marker.label === "v1.2.2";
+          const isCurrentFirmware = marker.label === CURRENT_FIRMWARE;
 
           root.appendChild(svg("line", {
             x1: markerX,
@@ -650,7 +654,7 @@
       const latestBattery = Number(latest.battery);
 
       const lookbackStart = Math.max(
-        FIRMWARE_114_TIME,
+        CURRENT_FIRMWARE_TIME,
         latestTime - 72 * 60 * 60 * 1000
       );
 
